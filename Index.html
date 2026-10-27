@@ -1,0 +1,4070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IMP · integrated multitool</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js">
+    </script>
+    <style>
+        /* ================================================================
+           BASE
+           ================================================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            color: #ddd;
+            font-size: 14px;
+        }
+        #graph-container {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #000;
+            transition: width 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        #graph-container.shifted {
+            width: calc(100% - var(--drawer-width, 280px));
+        }
+        #graph-container .vis-network {
+            outline: none;
+            background: #000 !important;
+        }
+        .vis-tooltip {
+            background: #111 !important;
+            border: 1px solid #fff !important;
+            color: #fff !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            font-size: 0.9rem !important;
+            padding: 4px 12px !important;
+            border-radius: 0 !important;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.9) !important;
+            pointer-events: none !important;
+        }
+        .vis-network .vis-node {
+            cursor: pointer;
+        }
+        .vis-network .vis-node:hover {
+            filter: brightness(1.3);
+        }
+
+        /* ----- DRAWER ----- */
+        .drawer {
+            position: fixed;
+            right: 0;
+            top: 0;
+            height: 100vh;
+            width: var(--drawer-width, 280px);
+            background: #0d0d0d;
+            border-left: 2px solid #fff;
+            padding: 12px 14px 14px 14px;
+            overflow-y: auto;
+            z-index: 100;
+            pointer-events: auto;
+            transform: translateX(100%);
+            transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-size: 14px;
+        }
+        .drawer.open {
+            transform: translateX(0);
+        }
+        .drawer::-webkit-scrollbar {
+            width: 4px;
+            background: #000;
+        }
+        .drawer::-webkit-scrollbar-thumb {
+            background: #fff;
+        }
+
+        /* ----- EDGE BAR ----- */
+        #edge-bar {
+            position: fixed;
+            right: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 200;
+            pointer-events: auto;
+            transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        #edge-bar.pushed {
+            transform: translateY(-50%) translateX(calc(-1 * var(--drawer-width, 280px) - 2px));
+        }
+        .ctrl-btn {
+            width: 40px;
+            height: 40px;
+            background: #000;
+            border: 2px solid #fff;
+            color: #fff;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            transition: background 0.1s, color 0.1s;
+            user-select: none;
+        }
+        .ctrl-btn:hover {
+            background: #fff;
+            color: #000;
+        }
+        .ctrl-btn.active {
+            background: #fff;
+            color: #000;
+        }
+        .ctrl-btn.hidden {
+            display: none;
+        }
+
+        .resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 8px;
+            cursor: col-resize;
+            z-index: 10;
+            background: transparent;
+            border-right: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+        .resize-handle:hover {
+            border-color: #fff;
+        }
+        .drawer-title {
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+            border-bottom: 2px solid #fff;
+            padding-bottom: 4px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            display: flex;
+            justify-content: space-between;
+            color: #fff;
+            font-weight: 600;
+        }
+        .drawer-title .shortcut {
+            font-size: 0.8rem;
+            color: #666;
+            font-weight: 400;
+        }
+
+        /* ----- NOTES ----- */
+        .notes-container {
+            display: flex;
+            flex-direction: row;
+            height: calc(100% - 30px);
+            gap: 0;
+            position: relative;
+        }
+        .notes-sidebar {
+            display: flex;
+            flex-direction: column;
+            width: 45%;
+            min-width: 80px;
+            background: #0a0a0a;
+            border: 1px solid #222;
+            padding: 4px;
+            flex-shrink: 0;
+            overflow: hidden;
+            position: relative;
+        }
+        .notes-divider {
+            width: 6px;
+            cursor: col-resize;
+            background: #222;
+            flex-shrink: 0;
+            transition: background 0.2s;
+            position: relative;
+            z-index: 5;
+        }
+        .notes-divider:hover,
+        .notes-divider.active {
+            background: #fff;
+        }
+        .notes-divider::after {
+            content: '⋮';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 0.8rem;
+            line-height: 1;
+        }
+        .notes-divider:hover::after {
+            color: #000;
+        }
+        .notes-sidebar .search-row {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+        .notes-sidebar .search-row input {
+            flex: 1;
+            font-size: 0.8rem;
+            padding: 2px 6px;
+            background: #000;
+            border: 1px solid #555;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .notes-sidebar .search-row input:focus {
+            outline: none;
+            border-color: #fff;
+        }
+        .notes-sidebar .search-row .btn {
+            font-size: 0.7rem;
+            padding: 0 8px;
+            background: #000;
+            border: 2px solid #fff;
+            color: #fff;
+            cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .notes-sidebar .search-row .btn:hover {
+            background: #fff;
+            color: #000;
+        }
+        .notes-sidebar .note-list {
+            overflow-y: auto;
+            flex: 1;
+            padding: 2px 0;
+            min-height: 60px;
+        }
+        .notes-sidebar .note-list::-webkit-scrollbar {
+            width: 3px;
+            background: #000;
+        }
+        .notes-sidebar .note-list::-webkit-scrollbar-thumb {
+            background: #444;
+        }
+        .note-item {
+            display: flex;
+            align-items: center;
+            padding: 2px 4px;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            font-size: 0.9rem;
+            color: #ddd;
+            gap: 4px;
+            margin: 1px 0;
+            border-radius: 2px;
+            transition: background 0.1s, border-left-color 0.2s;
+            position: relative;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .note-item:hover {
+            background: #1a1a1a;
+        }
+        .note-item.active {
+            border-left-color: #fff !important;
+            background: #1a1a1a;
+        }
+        .note-item .toggle-icon {
+            display: inline-block;
+            width: 14px;
+            text-align: center;
+            color: #666;
+            font-size: 0.6rem;
+            cursor: pointer;
+            flex-shrink: 0;
+            user-select: none;
+        }
+        .note-item .toggle-icon:hover {
+            color: #aaa;
+        }
+        .note-item .note-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.9rem;
+        }
+        .note-item .del {
+            color: #f44;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 0.8rem;
+            opacity: 0.4;
+            padding: 0 2px;
+        }
+        .note-item .del:hover {
+            opacity: 1;
+        }
+        .note-item.level-0 {
+            padding-left: 4px;
+        }
+        .note-item.level-1 {
+            padding-left: 20px;
+        }
+        .note-item.level-2 {
+            padding-left: 34px;
+        }
+        .note-item.level-3 {
+            padding-left: 48px;
+        }
+        .note-item.level-4 {
+            padding-left: 62px;
+        }
+        .note-item.level-5 {
+            padding-left: 76px;
+        }
+        .note-item.hidden {
+            display: none;
+        }
+
+        .notes-editor {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #222;
+            min-height: 120px;
+            background: #0a0a0a;
+            overflow: hidden;
+            min-width: 60px;
+        }
+        .notes-editor .toolbar {
+            display: flex;
+            gap: 2px;
+            padding: 2px 4px;
+            border-bottom: 1px solid #222;
+            flex-wrap: wrap;
+            background: #0a0a0a;
+            flex-shrink: 0;
+            align-items: center;
+        }
+        .notes-editor .toolbar button {
+            background: transparent;
+            border: 1px solid transparent;
+            color: #aaa;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 0.85rem;
+            padding: 0 6px;
+            cursor: pointer;
+            transition: 0.1s;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .notes-editor .toolbar button:hover {
+            color: #fff;
+            border-color: #444;
+        }
+        .notes-editor .toolbar .sep {
+            color: #333;
+            user-select: none;
+            font-size: 0.7rem;
+        }
+        .notes-editor .toolbar .check-btn {
+            font-size: 1rem;
+            padding: 0 4px;
+        }
+        .notes-editor .toolbar .check-btn.active {
+            color: #fff;
+            border-color: #888;
+        }
+        .notes-editor .title-input {
+            border: none;
+            border-bottom: 1px solid #222;
+            padding: 4px 8px;
+            font-size: 1rem;
+            background: transparent;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            flex-shrink: 0;
+            outline: none;
+        }
+        .notes-editor .title-input:focus {
+            border-color: #fff;
+        }
+        .notes-editor .body {
+            flex: 1;
+            padding: 6px 8px;
+            overflow-y: auto;
+            outline: none;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 80px;
+            background: #0a0a0a;
+            color: #ddd;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .notes-editor .body .highlight {
+            background: #ffcc00;
+            color: #000;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
+
+        /* ----- TASK ITEMS (checkbox) ----- */
+        .notes-editor .body .task-item {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            padding: 2px 0;
+            margin: 0;
+            line-height: 1.6;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .notes-editor .body .task-item .task-text {
+            flex: 1;
+            word-break: break-word;
+        }
+        .notes-editor .body .task-item input[type="checkbox"] {
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+            accent-color: #fff;
+            background: #000;
+            border: 1px solid #888;
+            cursor: pointer;
+            margin: 0;
+            pointer-events: auto;
+            position: relative;
+            top: 2px;
+        }
+        .notes-editor .body .task-item input[type="checkbox"]:checked {
+            accent-color: #0f0;
+        }
+        .notes-editor .body .task-item.done .task-text {
+            text-decoration: line-through;
+            opacity: 0.6;
+        }
+
+        /* ----- TIMER ----- */
+        .mode-indicator {
+            text-align: center;
+            font-size: 1rem;
+            color: #aaa;
+            text-transform: uppercase;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+        .timer-display {
+            font-size: 2.6rem;
+            text-align: center;
+            letter-spacing: 4px;
+            margin: 4px 0;
+            border: 1px solid #333;
+            padding: 4px 0;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+        }
+        .btn {
+            background: #000;
+            border: 2px solid #fff;
+            padding: 2px 10px;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: 0.1s;
+            text-transform: uppercase;
+            font-weight: 500;
+        }
+        .btn:hover {
+            background: #fff;
+            color: #000;
+        }
+        .btn:disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+        .btn-primary {
+            background: #222;
+        }
+        .btn-primary:hover {
+            background: #fff;
+            color: #000;
+        }
+        .pom-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px 8px;
+            font-size: 0.85rem;
+            margin: 4px 0;
+        }
+        .pom-stats .stat-label {
+            color: #666;
+        }
+        .pom-stats .stat-value {
+            color: #fff;
+            text-align: right;
+        }
+        .pom-heatmap-wrap {
+            overflow-x: auto;
+            margin: 4px 0 2px 0;
+            padding-bottom: 4px;
+        }
+        .pom-heatmap-wrap .github-grid {
+            display: flex;
+            gap: 2px;
+            min-width: fit-content;
+        }
+        .pom-heatmap-wrap .week-col {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            width: 16px;
+        }
+        .pom-heatmap-wrap .day-cell {
+            width: 12px;
+            height: 12px;
+            border-radius: 1px;
+            background: #1a1a1a;
+            cursor: pointer;
+            transition: transform 0.06s ease;
+        }
+        .pom-heatmap-wrap .day-cell:hover {
+            transform: scale(1.3);
+            filter: brightness(1.4);
+        }
+        .pom-heatmap-wrap .day-cell.heat-0 {
+            background: #1a1a1a;
+        }
+        .pom-heatmap-wrap .day-cell.heat-1 {
+            background: #444;
+        }
+        .pom-heatmap-wrap .day-cell.heat-2 {
+            background: #777;
+        }
+        .pom-heatmap-wrap .day-cell.heat-3 {
+            background: #aaa;
+        }
+        .pom-heatmap-wrap .day-cell.heat-4 {
+            background: #ddd;
+        }
+        .pom-heatmap-wrap .day-cell.today {
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
+        }
+        .pom-heatmap-wrap .month-labels {
+            display: flex;
+            margin-left: 24px;
+            margin-bottom: 4px;
+            font-size: 0.55rem;
+            color: #666;
+            font-weight: 400;
+        }
+        .pom-heatmap-wrap .month-label-item {
+            width: 16px;
+            text-align: left;
+            margin-right: 2px;
+            white-space: nowrap;
+        }
+        .pom-heatmap-wrap .weekday-names {
+            display: flex;
+            flex-direction: column;
+            width: 22px;
+            margin-right: 4px;
+            font-size: 0.5rem;
+            color: #666;
+            gap: 2px;
+            justify-content: space-around;
+        }
+        .pom-heatmap-wrap .weekday-name {
+            height: 12px;
+            line-height: 12px;
+            text-align: right;
+        }
+        .pom-heatmap-wrap .grid-wrapper {
+            display: flex;
+        }
+        .pom-heatmap-wrap .legend {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 6px;
+            font-size: 0.6rem;
+            color: #888;
+            align-items: center;
+        }
+        .pom-heatmap-wrap .legend .sq {
+            width: 12px;
+            height: 12px;
+            border-radius: 1px;
+            display: inline-block;
+        }
+        .pom-heatmap-wrap .legend .sq.heat-0 {
+            background: #1a1a1a;
+        }
+        .pom-heatmap-wrap .legend .sq.heat-1 {
+            background: #444;
+        }
+        .pom-heatmap-wrap .legend .sq.heat-2 {
+            background: #777;
+        }
+        .pom-heatmap-wrap .legend .sq.heat-3 {
+            background: #aaa;
+        }
+        .pom-heatmap-wrap .legend .sq.heat-4 {
+            background: #ddd;
+        }
+        .pom-log {
+            max-height: 80px;
+            overflow-y: auto;
+            font-size: 0.8rem;
+            border: 1px solid #222;
+            padding: 2px 4px;
+            margin-top: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .pom-log .log-item {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #1a1a1a;
+            padding: 4px 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .pom-log .log-item .type {
+            color: #aaa;
+        }
+        .pom-log .log-item .type.break {
+            color: #888;
+        }
+        .pom-log .log-item .del {
+            color: #f44;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 0.8rem;
+            margin-left: 8px;
+            flex-shrink: 0;
+        }
+        .pom-log .log-item .note-edit {
+            color: #666;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 0.7rem;
+            margin-left: 4px;
+        }
+
+        /* ----- MUSIC ----- */
+        .music-now {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .music-now .art {
+            width: 80px;
+            height: 80px;
+            background: #222;
+            border: 2px solid #fff;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: #555;
+            overflow: hidden;
+        }
+        .music-now .art img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .music-now .info {
+            flex: 1;
+            overflow: hidden;
+        }
+        .music-now .info .title {
+            font-size: 1.2rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-weight: 500;
+        }
+        .music-now .info .artist {
+            font-size: 1rem;
+            color: #aaa;
+        }
+        .music-now .info .album {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        #music-visualizer {
+            width: 100%;
+            height: 60px;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 2px;
+            display: block;
+            margin: 4px 0;
+        }
+        .music-progress {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .music-progress .bar {
+            flex: 1;
+            height: 4px;
+            background: #000;
+            border: 1px solid #fff;
+            position: relative;
+            cursor: pointer;
+        }
+        .music-progress .bar .fill {
+            height: 100%;
+            background: #fff;
+            width: 0%;
+            transition: width 0.05s linear;
+        }
+        .music-progress .time {
+            font-size: 0.7rem;
+            color: #888;
+            min-width: 28px;
+            font-family: 'Courier New', monospace;
+        }
+        .music-controls {
+            display: flex;
+            gap: 14px;
+            justify-content: center;
+            margin: 4px 0;
+        }
+        .music-controls span {
+            cursor: pointer;
+            font-size: 1.6rem;
+            transition: 0.1s;
+            color: #ccc;
+        }
+        .music-controls span:hover {
+            color: #fff;
+        }
+        .music-controls .play-btn {
+            font-size: 2.2rem;
+        }
+        .music-volume {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .music-volume .bar {
+            flex: 1;
+            height: 4px;
+            background: #000;
+            border: 1px solid #fff;
+            position: relative;
+            cursor: pointer;
+        }
+        .music-volume .bar .fill {
+            height: 100%;
+            background: #fff;
+            width: 70%;
+        }
+        .music-volume .label {
+            font-size: 0.7rem;
+            color: #888;
+            min-width: 28px;
+            font-family: 'Courier New', monospace;
+        }
+        .music-playlist {
+            border: 1px solid #222;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 6px;
+            padding: 2px 0;
+            background: #0a0a0a;
+        }
+        .music-playlist .pl-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 6px;
+            cursor: pointer;
+            border-left: 2px solid transparent;
+            font-size: 0.8rem;
+            transition: background 0.1s;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .music-playlist .pl-item:hover {
+            background: #1a1a1a;
+        }
+        .music-playlist .pl-item.active {
+            border-left-color: #fff;
+            background: #1a1a1a;
+        }
+        .music-playlist .pl-item .dur {
+            color: #666;
+        }
+        .music-actions {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+        .music-actions .btn {
+            font-size: 0.7rem;
+            padding: 2px 12px;
+        }
+
+        /* ----- SETTINGS ----- */
+        .settings-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            border-bottom: 1px solid #222;
+            pointer-events: auto;
+        }
+        .settings-item label {
+            flex: 1;
+            font-size: 0.95rem;
+            color: #ccc;
+            cursor: pointer;
+            pointer-events: auto;
+            font-weight: 400;
+        }
+        .settings-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #fff;
+            background: #000;
+            border: 1px solid #fff;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        .settings-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+            border-top: 1px solid #333;
+            padding-top: 10px;
+        }
+        .settings-actions .btn {
+            font-size: 0.75rem;
+            padding: 2px 12px;
+            pointer-events: auto;
+        }
+        .graph-settings {
+            padding-left: 28px;
+            border-left: 2px solid #333;
+            margin: 2px 0 4px 0;
+            display: none;
+        }
+        .graph-settings.visible {
+            display: block;
+        }
+        .graph-settings .settings-item {
+            padding: 3px 0;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .graph-settings .settings-item label {
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+
+        /* ----- MODALS ----- */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            pointer-events: auto;
+        }
+        .modal-overlay.open {
+            display: flex;
+        }
+        .modal-box {
+            background: #111;
+            border: 2px solid #fff;
+            padding: 16px 20px;
+            max-width: 360px;
+            width: 90%;
+            max-height: 70vh;
+            overflow-y: auto;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .modal-box .modal-title {
+            font-size: 1.2rem;
+            border-bottom: 1px solid #333;
+            padding-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .modal-box .modal-close {
+            background: none;
+            border: none;
+            color: #f44;
+            font-size: 1.4rem;
+            cursor: pointer;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .modal-box .session-detail {
+            padding: 4px 0;
+            border-bottom: 1px solid #1a1a1a;
+            font-size: 0.9rem;
+        }
+        .modal-box .session-detail .type {
+            color: #aaa;
+        }
+        .modal-box .session-detail .type.break {
+            color: #888;
+        }
+
+        .context-menu {
+            position: fixed;
+            background: #111;
+            border: 1px solid #fff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+            z-index: 99998;
+            min-width: 160px;
+            display: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .context-menu-item {
+            padding: 4px 14px;
+            cursor: pointer;
+            color: #ddd;
+            font-size: 0.95rem;
+            border-bottom: 1px solid #222;
+            transition: background 0.1s;
+        }
+        .context-menu-item:hover {
+            background: #1a1a1a;
+            color: #fff;
+        }
+
+        /* ================================================================
+           NOTE IMAGES (gallery)
+           ================================================================ */
+        .notes-editor .body img.note-image {
+            display: block;
+            max-width: 100%;
+            width: auto;
+            height: auto;
+            margin: 6px 0;
+            border: 1px solid #333;
+            background: #000;
+            cursor: zoom-in;
+            transition: border-color 0.15s;
+            vertical-align: bottom;
+        }
+        .notes-editor .body img.note-image:hover {
+            border-color: #fff;
+        }
+        .notes-editor .body.drag-over {
+            outline: 2px dashed #fff;
+            outline-offset: -6px;
+        }
+        .img-lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.94);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100000;
+            cursor: zoom-out;
+            padding: 20px;
+            pointer-events: auto;
+        }
+        .img-lightbox.open {
+            display: flex;
+        }
+        .img-lightbox img {
+            max-width: 96vw;
+            max-height: 92vh;
+            object-fit: contain;
+            border: 2px solid #fff;
+            background: #000;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
+            cursor: zoom-out;
+            display: block;
+        }
+
+        @media (max-width: 700px) {
+            .drawer {
+                width: var(--drawer-width, 220px);
+            }
+            #edge-bar.pushed {
+                transform: translateY(-50%) translateX(calc(-1 * var(--drawer-width, 220px) - 2px));
+            }
+            .ctrl-btn {
+                width: 32px;
+                height: 32px;
+                font-size: 16px;
+            }
+            .timer-display {
+                font-size: 2rem;
+            }
+            .pom-heatmap-wrap .day-cell {
+                width: 10px;
+                height: 10px;
+            }
+            .pom-heatmap-wrap .week-col {
+                width: 14px;
+            }
+            .pom-heatmap-wrap .month-label-item {
+                width: 14px;
+                font-size: 0.45rem;
+            }
+            .notes-sidebar {
+                min-width: 60px;
+            }
+            .notes-editor .body {
+                font-size: 0.8rem;
+                min-height: 60px;
+            }
+            .music-now .art {
+                width: 60px;
+                height: 60px;
+            }
+            #graph-container.shifted {
+                width: calc(100% - var(--drawer-width, 220px));
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- GRAPH -->
+    <div id="graph-container"></div>
+
+    <!-- DRAWERS -->
+    <div id="drawer-timer" class="drawer">
+        <div class="resize-handle"></div>
+        <div class="drawer-title">Timer <span class="shortcut">F2</span></div>
+        <div class="mode-indicator" id="timer-mode">Study</div>
+        <div class="timer-display" id="timer-display">25:00</div>
+        <div style="display:flex; gap:4px; justify-content:center; margin:4px 0;">
+            <button class="btn btn-primary" id="timer-start">Start</button>
+            <button class="btn" id="timer-pause" disabled>Pause</button>
+            <button class="btn" id="timer-reset">Reset</button>
+            <button class="btn" id="timer-skip">Skip</button>
+        </div>
+        <div style="display:flex; gap:10px; justify-content:center; font-size:0.9rem;">
+            <label>Study <input type="number" id="study-time" value="25" min="1" max="120" style="width:36px;background:#000;border:1px solid #555;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;" /></label>
+            <label>Break <input type="number" id="break-time" value="5" min="1" max="30" style="width:36px;background:#000;border:1px solid #555;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;" /></label>
+        </div>
+        <div style="margin-top:8px;">
+            <label style="font-size:0.8rem;color:#888;">Session Note (use #tags):</label>
+            <input type="text" id="session-note-input" style="width:100%;background:#000;border:1px solid #555;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:2px 6px;" />
+        </div>
+        <div class="session-count" style="text-align:center; margin-top:2px;">Sessions: <span id="session-count">0</span></div>
+        <div class="pom-stats" style="margin-top:6px;">
+            <span class="stat-label">Day</span><span class="stat-value accent" id="pom-day-study">0h 0m</span>
+            <span class="stat-label">Week</span><span class="stat-value accent" id="pom-week-study">0h 0m</span>
+            <span class="stat-label">Month</span><span class="stat-value accent" id="pom-month-study">0h 0m</span>
+            <span class="stat-label">Year</span><span class="stat-value accent" id="pom-year-study">0h 0m</span>
+        </div>
+        <div style="margin-top:4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#888;">
+                <span>Activity</span>
+                <span style="display:flex; gap:4px;">
+                    <button id="pom-year-prev" style="background:none;border:1px solid #333;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:0.7rem;padding:0 6px;cursor:pointer;">←</button>
+                    <span id="pom-year-label" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:1rem;color:#fff;font-weight:500;">2025</span>
+                    <button id="pom-year-next" style="background:none;border:1px solid #333;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:0.7rem;padding:0 6px;cursor:pointer;">→</button>
+                </span>
+            </div>
+            <div class="pom-heatmap-wrap" id="pom-heatmap-wrap"><div id="pom-grid-container"></div></div>
+        </div>
+        <div style="margin-top:4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#888;">
+                <span>History</span>
+                <button id="pom-toggle-log" style="background:none;border:1px solid #333;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:0.65rem;padding:0 6px;cursor:pointer;">Show All</button>
+            </div>
+            <div class="pom-log" id="pom-activity-log"></div>
+        </div>
+    </div>
+
+    <div id="drawer-notes" class="drawer">
+        <div class="resize-handle"></div>
+        <div class="drawer-title">Notes <span class="shortcut">F3</span></div>
+        <div class="notes-container" id="notes-container">
+            <div class="notes-sidebar" id="notes-sidebar">
+                <div class="search-row">
+                    <input type="text" id="notes-search" placeholder="Search..." />
+                    <button class="btn" id="notes-add-btn" style="font-size:0.7rem;padding:0 8px;">+</button>
+                </div>
+                <div class="note-list" id="notes-list"></div>
+            </div>
+            <div class="notes-divider" id="notes-divider"></div>
+            <div class="notes-editor" id="notes-editor">
+                <div class="toolbar">
+                    <button data-cmd="bold"><strong>B</strong></button>
+                    <button data-cmd="italic"><em>I</em></button>
+                    <button data-cmd="underline"><u>U</u></button>
+                    <button data-cmd="highlight">H</button>
+                    <span class="sep">|</span>
+                    <button data-cmd="checkbox" class="check-btn" title="Add checkbox to selected text">☑</button>
+                    <span class="sep">|</span>
+                    <button data-cmd="clear">Clear</button>
+                    <button id="add-child-btn" style="font-size:0.65rem;border:1px solid #444;padding:0 6px;">child</button>
+                </div>
+                <input type="text" class="title-input" id="notes-title" placeholder="Note title" />
+                <div class="body" id="notes-body" contenteditable="true"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="drawer-music" class="drawer">
+        <div class="resize-handle"></div>
+        <div class="drawer-title">Music <span class="shortcut">F4</span></div>
+        <div class="music-actions">
+            <button class="btn" id="music-folder-btn" style="font-size:0.8rem;padding:4px 14px;">Select Music Folder</button>
+            <span style="font-size:0.7rem;color:#666;margin-left:auto;" id="music-count">0 songs</span>
+        </div>
+        <div class="music-now">
+            <div class="art" id="music-art">🎵</div>
+            <div class="info">
+                <div class="title" id="music-title">—</div>
+                <div class="artist" id="music-artist">—</div>
+                <div class="album" id="music-album">—</div>
+            </div>
+        </div>
+        <canvas id="music-visualizer"></canvas>
+        <div class="music-progress">
+            <span class="time" id="music-elapsed">0:00</span>
+            <div class="bar" id="music-progress-bar"><div class="fill" id="music-progress-fill"></div></div>
+            <span class="time" id="music-total">0:00</span>
+        </div>
+        <div class="music-controls">
+            <span id="music-prev">⏮</span>
+            <span class="play-btn" id="music-play">▶</span>
+            <span id="music-stop">⏹</span>
+            <span id="music-next">⏭</span>
+        </div>
+        <div class="music-volume">
+            <span>🔊</span>
+            <div class="bar" id="music-volume-bar"><div class="fill" id="music-volume-fill" style="width:70%;"></div></div>
+            <span class="label" id="music-volume-label">70%</span>
+        </div>
+        <div class="music-playlist" id="music-playlist"></div>
+        <input type="file" id="music-file-input" webkitdirectory multiple accept="audio/*,image/*" style="display:none;" />
+    </div>
+
+    <div id="drawer-settings" class="drawer">
+        <div class="resize-handle"></div>
+        <div class="drawer-title">Settings <span class="shortcut">⚙️</span></div>
+        <div class="settings-item">
+            <input type="checkbox" id="set-timer" checked />
+            <label for="set-timer">Enable Timer</label>
+        </div>
+        <div class="settings-item">
+            <input type="checkbox" id="set-notes" checked />
+            <label for="set-notes">Enable Notes</label>
+        </div>
+        <div class="settings-item">
+            <input type="checkbox" id="set-music" checked />
+            <label for="set-music">Enable Music</label>
+        </div>
+        <div class="settings-item">
+            <input type="checkbox" id="set-graph" checked />
+            <label for="set-graph">Enable Graph</label>
+        </div>
+        <div class="graph-settings" id="graph-settings">
+            <div class="settings-item">
+                <input type="checkbox" id="set-show-sessions" />
+                <label for="set-show-sessions">Show Session Nodes</label>
+            </div>
+            <div class="settings-item">
+                <input type="checkbox" id="set-graph-anim" />
+                <label for="set-graph-anim">Graph Animation (loop)</label>
+            </div>
+        </div>
+        <div class="settings-actions">
+            <button class="btn" id="settings-export">Export Data</button>
+            <button class="btn" id="settings-import">Import Data</button>
+            <button class="btn btn-primary" id="settings-save">Save State</button>
+            <button class="btn" id="settings-reset" style="color:#f44;">Reset Defaults</button>
+        </div>
+        <input type="file" id="settings-file-input" accept=".json" style="display:none;" />
+    </div>
+
+    <!-- EDGE BAR -->
+    <div id="edge-bar">
+        <div class="ctrl-btn" data-module="timer">⏱</div>
+        <div class="ctrl-btn" data-module="notes">📝</div>
+        <div class="ctrl-btn" data-module="music">🎵</div>
+        <div class="ctrl-btn" data-module="settings">⚙️</div>
+    </div>
+
+    <!-- CONTEXT MENU -->
+    <div class="context-menu" id="note-context-menu">
+        <div class="context-menu-item" data-action="rename">Rename</div>
+        <div class="context-menu-item" data-action="color">Set Color…</div>
+        <div class="context-menu-item" data-action="moveup">Move Up</div>
+        <div class="context-menu-item" data-action="movedown">Move Down</div>
+        <div class="context-menu-item" data-action="moveparent">Move to Parent…</div>
+        <div class="context-menu-item" data-action="makeroot">Make Root</div>
+        <div class="context-menu-item" data-action="addchild">Add Child</div>
+        <div class="context-menu-item" data-action="delete" style="color:#f44;">Delete</div>
+    </div>
+
+    <!-- IMAGE CONTEXT MENU -->
+    <div class="context-menu" id="image-context-menu">
+        <div class="context-menu-item" data-action="bigger">+ Bigger</div>
+        <div class="context-menu-item" data-action="smaller">− Smaller</div>
+        <div class="context-menu-item" data-action="reset">Reset Size</div>
+        <div class="context-menu-item" data-action="open">Open Full Size</div>
+        <div class="context-menu-item" data-action="delete" style="color:#f44;">Remove Image</div>
+    </div>
+
+    <!-- IMAGE LIGHTBOX -->
+    <div class="img-lightbox" id="img-lightbox">
+        <img id="img-lightbox-img" src="" alt="" />
+    </div>
+
+    <!-- COLOR PICKER -->
+    <div class="modal-overlay" id="color-modal">
+        <div class="modal-box">
+            <div class="modal-title">
+                <span>Pick a Color</span>
+                <button class="modal-close" id="color-modal-close">&times;</button>
+            </div>
+            <div style="padding:8px 0; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <input type="color" id="color-picker-free" value="#ff6b6b" style="width:60px;height:60px;border:2px solid #fff;background:#000;cursor:pointer;" />
+                <span style="font-size:0.8rem;color:#888;">pick any color</span>
+            </div>
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn" id="color-remove" style="color:#f44;">Remove Color</button>
+                <button class="btn btn-primary" id="color-apply">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOVE PARENT -->
+    <div class="modal-overlay" id="move-parent-modal">
+        <div class="modal-box">
+            <div class="modal-title">
+                <span>Move to Parent</span>
+                <button class="modal-close" id="move-parent-close">&times;</button>
+            </div>
+            <div id="move-parent-list" style="max-height:200px; overflow-y:auto; padding:4px 0;"></div>
+        </div>
+    </div>
+
+    <!-- DETAIL MODAL -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-title">
+                <span id="modal-title-text">Day details</span>
+                <button class="modal-close" id="modal-close-btn">&times;</button>
+            </div>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        // STATE
+        // ================================================================
+        const STATE_KEY = 'imti_data';
+
+        function getDefaultState() {
+            return {
+                pomodoro: {
+                    sessionsCompleted: 0,
+                    studySessions: [],
+                    breakSessions: [],
+                    activityLog: [],
+                    stickyNotes: [],
+                    studyTime: 25,
+                    breakTime: 5,
+                },
+                notes: { notes: [], currentId: null, collapsed: [] },
+                music: { songs: [], currentIndex: 0, volume: 70 },
+                settings: {
+                    enabled: { timer: true, notes: true, music: true, graph: true },
+                    drawerWidth: 280,
+                    graphAnim: false,
+                    showSessions: false,
+                }
+            };
+        }
+
+        let state = getDefaultState();
+        let pendingColorTargetId = null;
+        let pendingMoveTargetId = null;
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STATE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const def = getDefaultState();
+                    for (const k of Object.keys(def)) {
+                        if (!parsed[k]) parsed[k] = def[k];
+                        if (typeof def[k] === 'object' && !Array.isArray(def[k])) {
+                            for (const sub of Object.keys(def[k])) {
+                                if (parsed[k][sub] === undefined) parsed[k][sub] = def[k][sub];
+                            }
+                        }
+                    }
+                    state = parsed;
+                }
+            } catch (e) { state = getDefaultState(); }
+            ['studySessions', 'breakSessions', 'activityLog', 'stickyNotes'].forEach(k => {
+                if (!state.pomodoro[k]) state.pomodoro[k] = [];
+            });
+            if (!state.notes.notes) state.notes.notes = [];
+            if (!state.notes.collapsed) state.notes.collapsed = [];
+            if (!state.music.songs) state.music.songs = [];
+            if (!state.settings) state.settings = { enabled: { timer: true, notes: true, music: true, graph: true },
+                drawerWidth: 280, graphAnim: false, showSessions: false };
+            if (!state.settings.enabled) state.settings.enabled = { timer: true, notes: true, music: true, graph: true };
+            if (!state.settings.drawerWidth) state.settings.drawerWidth = 280;
+            if (state.settings.graphAnim === undefined) state.settings.graphAnim = false;
+            if (state.settings.showSessions === undefined) state.settings.showSessions = false;
+            state.notes.notes.forEach(n => { if (!n.tags) n.tags = []; if (!n.color) n.color = null; });
+            state.pomodoro.activityLog.forEach(s => { if (!s.tags) s.tags = []; });
+            saveState();
+        }
+
+        function saveState() {
+            localStorage.setItem(STATE_KEY, JSON.stringify(state));
+        }
+
+        // ================================================================
+        // DRAWER RESIZE
+        // ================================================================
+        let currentDrawerWidth = 280;
+        let isResizing = false;
+        let resizeStartX = 0;
+        let resizeStartWidth = 0;
+
+        function initResize() {
+            const handles = document.querySelectorAll('.resize-handle');
+            handles.forEach(handle => {
+                handle.removeEventListener('mousedown', onResizeStart);
+                handle.addEventListener('mousedown', onResizeStart);
+            });
+            currentDrawerWidth = state.settings.drawerWidth || 280;
+            applyDrawerWidth();
+        }
+
+        function onResizeStart(e) {
+            e.preventDefault();
+            isResizing = true;
+            resizeStartX = e.clientX;
+            resizeStartWidth = currentDrawerWidth;
+            document.body.style.cursor = 'col-resize';
+            document.addEventListener('mousemove', onResizeMove);
+            document.addEventListener('mouseup', onResizeEnd);
+        }
+
+        function onResizeMove(e) {
+            if (!isResizing) return;
+            const maxWidth = Math.min(window.innerWidth * 0.9, 800);
+            const newWidth = Math.min(maxWidth, Math.max(180, resizeStartWidth + (resizeStartX - e.clientX)));
+            currentDrawerWidth = newWidth;
+            state.settings.drawerWidth = newWidth;
+            saveState();
+            applyDrawerWidth();
+        }
+
+        function onResizeEnd() {
+            isResizing = false;
+            document.body.style.cursor = '';
+            document.removeEventListener('mousemove', onResizeMove);
+            document.removeEventListener('mouseup', onResizeEnd);
+        }
+
+        function applyDrawerWidth() {
+            const w = currentDrawerWidth;
+            document.documentElement.style.setProperty('--drawer-width', w + 'px');
+            let anyOpen = false;
+            Object.values(drawers).forEach(d => { if (d && d.classList.contains('open')) anyOpen = true; });
+            const edge = document.getElementById('edge-bar');
+            if (anyOpen) {
+                edge.classList.add('pushed');
+                document.getElementById('graph-container').classList.add('shifted');
+            } else {
+                edge.classList.remove('pushed');
+                document.getElementById('graph-container').classList.remove('shifted');
+            }
+        }
+
+        // ================================================================
+        // NOTES SIDEBAR RESIZE
+        // ================================================================
+        let isDividerResizing = false;
+        let dividerStartX = 0;
+        let sidebarStartWidth = 0;
+
+        function initDividerResize() {
+            const divider = document.getElementById('notes-divider');
+            const sidebar = document.getElementById('notes-sidebar');
+            divider.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                isDividerResizing = true;
+                dividerStartX = e.clientX;
+                sidebarStartWidth = sidebar.offsetWidth;
+                divider.classList.add('active');
+                document.body.style.cursor = 'col-resize';
+                document.addEventListener('mousemove', onDividerMove);
+                document.addEventListener('mouseup', onDividerEnd);
+            });
+        }
+
+        function onDividerMove(e) {
+            if (!isDividerResizing) return;
+            const containerWidth = document.getElementById('notes-container').offsetWidth;
+            const delta = e.clientX - dividerStartX;
+            const newSidebarWidth = Math.min(containerWidth - 80, Math.max(80, sidebarStartWidth + delta));
+            document.getElementById('notes-sidebar').style.width = newSidebarWidth + 'px';
+        }
+
+        function onDividerEnd() {
+            isDividerResizing = false;
+            document.getElementById('notes-divider').classList.remove('active');
+            document.body.style.cursor = '';
+            document.removeEventListener('mousemove', onDividerMove);
+            document.removeEventListener('mouseup', onDividerEnd);
+        }
+
+        // ================================================================
+        // NAVIGATION
+        // ================================================================
+        const buttons = document.querySelectorAll('.ctrl-btn');
+        const edgeBar = document.getElementById('edge-bar');
+        const drawers = {
+            timer: document.getElementById('drawer-timer'),
+            notes: document.getElementById('drawer-notes'),
+            music: document.getElementById('drawer-music'),
+            settings: document.getElementById('drawer-settings')
+        };
+
+        buttons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mod = btn.dataset.module;
+                const drawer = drawers[mod];
+                if (!drawer) return;
+                const wasOpen = drawer.classList.contains('open');
+                Object.keys(drawers).forEach(k => drawers[k].classList.remove('open'));
+                buttons.forEach(b => b.classList.remove('active'));
+                if (!wasOpen) {
+                    drawer.classList.add('open');
+                    btn.classList.add('active');
+                    edgeBar.classList.add('pushed');
+                    document.getElementById('graph-container').classList.add('shifted');
+                    if (mod === 'timer') renderPomodoro();
+                    if (mod === 'notes') renderNotesList();
+                    if (mod === 'music') { renderMusicPlaylist();
+                        updateMusicNowPlaying();
+                        startVisualizer(); }
+                    initResize();
+                    if (networkInstance) {
+                        setTimeout(() => { if (networkInstance) networkInstance.fit(); }, 150);
+                    }
+                } else {
+                    edgeBar.classList.remove('pushed');
+                    document.getElementById('graph-container').classList.remove('shifted');
+                    if (mod === 'music') stopVisualizer();
+                    applyDrawerWidth();
+                }
+            });
+        });
+
+        // ================================================================
+        // SETTINGS
+        // ================================================================
+        function applySettings() {
+            const s = state.settings.enabled;
+            document.getElementById('set-timer').checked = s.timer;
+            document.getElementById('set-notes').checked = s.notes;
+            document.getElementById('set-music').checked = s.music;
+            document.getElementById('set-graph').checked = s.graph;
+            document.getElementById('set-show-sessions').checked = state.settings.showSessions || false;
+            document.getElementById('set-graph-anim').checked = state.settings.graphAnim || false;
+
+            const gs = document.getElementById('graph-settings');
+            if (s.graph) { gs.classList.add('visible'); } else { gs.classList.remove('visible'); }
+
+            const map = { timer: s.timer, notes: s.notes, music: s.music };
+            document.querySelectorAll('.ctrl-btn[data-module]').forEach(btn => {
+                const mod = btn.dataset.module;
+                if (mod === 'settings') return;
+                if (map[mod] === undefined) return;
+                btn.classList.toggle('hidden', !map[mod]);
+            });
+            Object.keys(map).forEach(mod => {
+                if (!map[mod] && drawers[mod] && drawers[mod].classList.contains('open')) {
+                    drawers[mod].classList.remove('open');
+                    document.querySelector(`.ctrl-btn[data-module="${mod}"]`)?.classList.remove('active');
+                    edgeBar.classList.remove('pushed');
+                    document.getElementById('graph-container').classList.remove('shifted');
+                    if (mod === 'music') stopVisualizer();
+                }
+            });
+            const gc = document.getElementById('graph-container');
+            if (s.graph) {
+                gc.style.display = 'block';
+                if (!networkInstance) {
+                    initGraph();
+                } else {
+                    updateGraphSafe();
+                }
+            } else {
+                gc.style.display = 'none';
+                stopGraphAnimation();
+            }
+            applyDrawerWidth();
+            if (state.settings.graphAnim && networkInstance && s.graph) {
+                startGraphAnimation();
+            } else {
+                stopGraphAnimation();
+            }
+        }
+
+        document.getElementById('set-timer').addEventListener('change', function() {
+            state.settings.enabled.timer = this.checked;
+            saveState();
+            applySettings();
+        });
+        document.getElementById('set-notes').addEventListener('change', function() {
+            state.settings.enabled.notes = this.checked;
+            saveState();
+            applySettings();
+        });
+        document.getElementById('set-music').addEventListener('change', function() {
+            state.settings.enabled.music = this.checked;
+            saveState();
+            applySettings();
+            if (this.checked) { startVisualizer(); } else { stopVisualizer(); }
+        });
+        document.getElementById('set-graph').addEventListener('change', function() {
+            state.settings.enabled.graph = this.checked;
+            saveState();
+            applySettings();
+            if (!this.checked) stopGraphAnimation();
+        });
+        document.getElementById('set-show-sessions').addEventListener('change', function() {
+            state.settings.showSessions = this.checked;
+            saveState();
+            if (networkInstance) updateGraphSafe();
+        });
+        document.getElementById('set-graph-anim').addEventListener('change', function() {
+            state.settings.graphAnim = this.checked;
+            saveState();
+            applySettings();
+        });
+
+        document.getElementById('settings-export').addEventListener('click', exportData);
+        document.getElementById('settings-import').addEventListener('click', () => {
+            document.getElementById('settings-file-input').click();
+        });
+        document.getElementById('settings-file-input').addEventListener('change', (e) => {
+            if (e.target.files[0]) importData(e.target.files[0]);
+            e.target.value = '';
+        });
+        document.getElementById('settings-save').addEventListener('click', () => {
+            saveState();
+            alert('State saved to localStorage.');
+        });
+        document.getElementById('settings-reset').addEventListener('click', () => {
+            if (!confirm('Reset all data to default? This cannot be undone.')) return;
+            state = getDefaultState();
+            saveState();
+            applySettings();
+            initPomodoro();
+            initNotes();
+            initMusic();
+            initResize();
+            applyDrawerWidth();
+            if (networkInstance) updateGraphSafe();
+            alert('Reset complete.');
+        });
+
+        function exportData() {
+            const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `imp-${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importData(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (!data.pomodoro || !data.notes || !data.music || !data.settings) {
+                        alert('Invalid IMP data file.');
+                        return;
+                    }
+                    state = data;
+                    state.notes.notes.forEach(n => { if (!n.color) n.color = null; });
+                    if (state.settings.graphAnim === undefined) state.settings.graphAnim = false;
+                    if (state.settings.showSessions === undefined) state.settings.showSessions = false;
+                    saveState();
+                    applySettings();
+                    initPomodoro();
+                    initNotes();
+                    initMusic();
+                    initResize();
+                    applyDrawerWidth();
+                    if (networkInstance) updateGraphSafe();
+                    alert('Import successful!');
+                } catch (err) { alert('Failed to import: ' + err.message); }
+            };
+            reader.readAsText(file);
+        }
+
+        // ================================================================
+        // TAG EXTRACTION
+        // ================================================================
+        function extractTags(text) {
+            if (!text) return [];
+            const clean = text.replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
+            const regex = /#(\w+)/g;
+            const matches = [];
+            let m;
+            while ((m = regex.exec(clean)) !== null) {
+                const tag = m[1].trim().toLowerCase();
+                if (tag.length > 0) matches.push(tag);
+            }
+            return [...new Set(matches)];
+        }
+
+        function getPlainText(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || '';
+        }
+
+        // ================================================================
+        // COLOR HELPERS
+        // ================================================================
+        function getEffectiveColor(noteId) {
+            const note = state.notes.notes.find(n => n.id === noteId);
+            if (!note) return null;
+            if (note.color) return note.color;
+            if (note.parentId) {
+                const parentColor = getEffectiveColor(note.parentId);
+                if (parentColor) return parentColor;
+            }
+            return null;
+        }
+
+        function setNoteColor(noteId, color) {
+            const note = state.notes.notes.find(n => n.id === noteId);
+            if (!note) return;
+            note.color = color;
+            const children = state.notes.notes.filter(n => n.parentId === noteId);
+            children.forEach(child => setNoteColor(child.id, color));
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+            if (networkInstance) updateGraphSafe();
+        }
+
+        function removeNoteColor(noteId) {
+            const note = state.notes.notes.find(n => n.id === noteId);
+            if (!note) return;
+            note.color = null;
+            const children = state.notes.notes.filter(n => n.parentId === noteId);
+            children.forEach(child => removeNoteColor(child.id));
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+            if (networkInstance) updateGraphSafe();
+        }
+
+        // ================================================================
+        // NOTE REORDERING
+        // ================================================================
+        function moveNoteUp(noteId) {
+            const s = state.notes;
+            const idx = s.notes.findIndex(n => n.id === noteId);
+            if (idx <= 0) return;
+            const note = s.notes[idx];
+            const parentId = note.parentId || null;
+            const siblings = s.notes.filter(n => (n.parentId || null) === parentId);
+            const sibIdx = siblings.findIndex(n => n.id === noteId);
+            if (sibIdx <= 0) return;
+            const prevSibling = siblings[sibIdx - 1];
+            const prevIdx = s.notes.findIndex(n => n.id === prevSibling.id);
+            [s.notes[idx], s.notes[prevIdx]] = [s.notes[prevIdx], s.notes[idx]];
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+            if (networkInstance) updateGraphSafe();
+        }
+
+        function moveNoteDown(noteId) {
+            const s = state.notes;
+            const idx = s.notes.findIndex(n => n.id === noteId);
+            if (idx === -1 || idx === s.notes.length - 1) return;
+            const note = s.notes[idx];
+            const parentId = note.parentId || null;
+            const siblings = s.notes.filter(n => (n.parentId || null) === parentId);
+            const sibIdx = siblings.findIndex(n => n.id === noteId);
+            if (sibIdx === -1 || sibIdx === siblings.length - 1) return;
+            const nextSibling = siblings[sibIdx + 1];
+            const nextIdx = s.notes.findIndex(n => n.id === nextSibling.id);
+            [s.notes[idx], s.notes[nextIdx]] = [s.notes[nextIdx], s.notes[idx]];
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+            if (networkInstance) updateGraphSafe();
+        }
+
+        function moveNoteToParent(noteId, newParentId) {
+            const s = state.notes;
+            const note = s.notes.find(n => n.id === noteId);
+            if (!note) return;
+            if (newParentId) {
+                let current = s.notes.find(n => n.id === newParentId);
+                while (current) {
+                    if (current.id === noteId) return;
+                    current = s.notes.find(n => n.id === current.parentId);
+                }
+            }
+            note.parentId = newParentId || null;
+            if (!note.color && newParentId) {
+                const parentColor = getEffectiveColor(newParentId);
+                if (parentColor) {
+                    note.color = parentColor;
+                    const children = s.notes.filter(n => n.parentId === noteId);
+                    children.forEach(c => { if (!c.color) c.color = parentColor; });
+                }
+            }
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+            if (networkInstance) updateGraphSafe();
+        }
+
+        function makeNoteRoot(noteId) { moveNoteToParent(noteId, null); }
+
+        // ================================================================
+        // POMODORO
+        // ================================================================
+        let pomInterval = null;
+        let pomTimeLeft = 25 * 60;
+        let pomRunning = false;
+        let pomIsStudy = true;
+        let pomYear = new Date().getFullYear();
+
+        const pomDisplay = document.getElementById('timer-display');
+        const pomMode = document.getElementById('timer-mode');
+        const pomStart = document.getElementById('timer-start');
+        const pomPause = document.getElementById('timer-pause');
+        const pomReset = document.getElementById('timer-reset');
+        const pomSkip = document.getElementById('timer-skip');
+        const pomStudyInput = document.getElementById('study-time');
+        const pomBreakInput = document.getElementById('break-time');
+        const pomSessions = document.getElementById('session-count');
+        const sessionNoteInput = document.getElementById('session-note-input');
+
+        function initPomodoro() {
+            const s = state.pomodoro;
+            pomStudyInput.value = s.studyTime || 25;
+            pomBreakInput.value = s.breakTime || 5;
+            pomSessions.textContent = s.sessionsCompleted || 0;
+            pomTimeLeft = (pomIsStudy ? s.studyTime : s.breakTime) * 60 || 25 * 60;
+            updatePomDisplay();
+            updatePomMode();
+            renderPomodoro();
+            pomYear = new Date().getFullYear();
+            document.getElementById('pom-year-label').textContent = pomYear;
+        }
+
+        function updatePomDisplay() {
+            const m = Math.floor(pomTimeLeft / 60);
+            const s = pomTimeLeft % 60;
+            pomDisplay.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        function updatePomMode() {
+            pomMode.textContent = pomIsStudy ? 'Study' : 'Break';
+            pomMode.style.color = pomIsStudy ? '#aaa' : '#888';
+        }
+
+        function pomStartTimer() {
+            if (pomRunning) return;
+            pomRunning = true;
+            pomStart.disabled = true;
+            pomPause.disabled = false;
+            pomInterval = setInterval(() => {
+                pomTimeLeft--;
+                updatePomDisplay();
+                if (pomTimeLeft <= 0) {
+                    clearInterval(pomInterval);
+                    pomRunning = false;
+                    pomHandleComplete();
+                }
+            }, 1000);
+        }
+
+        function pomPauseTimer() {
+            clearInterval(pomInterval);
+            pomRunning = false;
+            pomStart.disabled = false;
+            pomPause.disabled = true;
+        }
+
+        function pomResetTimer() {
+            pomPauseTimer();
+            pomIsStudy = true;
+            const t = parseInt(pomStudyInput.value) || 25;
+            pomTimeLeft = t * 60;
+            updatePomDisplay();
+            updatePomMode();
+            pomStart.disabled = false;
+            pomPause.disabled = true;
+            sessionNoteInput.value = '';
+        }
+
+        function pomSkipTimer() {
+            pomPauseTimer();
+            pomHandleComplete();
+        }
+
+        function pomHandleComplete() {
+            const s = state.pomodoro;
+            const dur = pomIsStudy ? (parseInt(pomStudyInput.value) || 25) : (parseInt(pomBreakInput.value) || 5);
+            const now = new Date();
+            const noteText = sessionNoteInput.value || '';
+            const tags = extractTags(noteText);
+
+            if (pomIsStudy) {
+                s.studySessions.push({ duration: dur, completedAt: now.toISOString(), tags: tags });
+                s.activityLog.unshift({ type: 'study', duration: dur, timestamp: now.toISOString(), note: noteText,
+                    tags: tags });
+                s.sessionsCompleted = (s.sessionsCompleted || 0) + 1;
+                pomSessions.textContent = s.sessionsCompleted;
+                try { new Audio(
+                    'https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3').play(); } catch (
+                e) {}
+            } else {
+                s.breakSessions.push({ duration: dur, completedAt: now.toISOString(), tags: tags });
+                s.activityLog.unshift({ type: 'break', duration: dur, timestamp: now.toISOString(), note: noteText,
+                    tags: tags });
+                try { new Audio(
+                    'https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3').play(); } catch (
+                e) {}
+            }
+            pomIsStudy = !pomIsStudy;
+            const next = pomIsStudy ? (parseInt(pomStudyInput.value) || 25) : (parseInt(pomBreakInput.value) || 5);
+            pomTimeLeft = next * 60;
+            updatePomDisplay();
+            updatePomMode();
+            pomStart.disabled = false;
+            pomPause.disabled = true;
+            sessionNoteInput.value = '';
+            saveState();
+            renderPomodoro();
+            if (networkInstance) updateGraphSafe();
+        }
+
+        function renderPomodoro() {
+            const s = state.pomodoro;
+            pomSessions.textContent = s.sessionsCompleted || 0;
+            const now = new Date();
+            const dayAgo = new Date(now.getTime() - 24 * 3600000);
+            const weekAgo = new Date(now.getTime() - 7 * 24 * 3600000);
+            const monthAgo = new Date(now.getTime() - 30 * 24 * 3600000);
+            const yearAgo = new Date(now.getTime() - 365 * 24 * 3600000);
+            const sum = (arr, d) => arr.filter(x => new Date(x.completedAt) > d).reduce((a, c) => a + c.duration, 0);
+            const fmt = m => `${Math.floor(m/60)}h ${m%60}m`;
+            document.getElementById('pom-day-study').textContent = fmt(sum(s.studySessions, dayAgo));
+            document.getElementById('pom-week-study').textContent = fmt(sum(s.studySessions, weekAgo));
+            document.getElementById('pom-month-study').textContent = fmt(sum(s.studySessions, monthAgo));
+            document.getElementById('pom-year-study').textContent = fmt(sum(s.studySessions, yearAgo));
+            renderPomActivityLog();
+            renderPomHeatmap();
+        }
+
+        function renderPomActivityLog() {
+            const container = document.getElementById('pom-activity-log');
+            const s = state.pomodoro;
+            const showAll = document.getElementById('pom-toggle-log').textContent === 'Show Less';
+            const log = s.activityLog || [];
+            const count = showAll ? log.length : Math.min(5, log.length);
+            container.innerHTML = '';
+            for (let i = 0; i < count; i++) {
+                const item = log[i];
+                const d = new Date(item.timestamp);
+                const ds = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const div = document.createElement('div');
+                div.className = 'log-item';
+                const tagStr = (item.tags || []).map(t => `#${t}`).join(' ');
+                div.innerHTML = `
+              <span><span class="type ${item.type}">${item.type}</span> ${item.duration}min <span style="color:#555;font-size:0.7rem;">${ds}</span> ${item.note ? '– '+item.note : ''} ${tagStr ? '<span style="color:#888;">'+tagStr+'</span>' : ''}</span>
+              <span>
+                <button class="note-edit" data-idx="${i}">✎</button>
+                <button class="del" data-idx="${i}">×</button>
+              </span>
+            `;
+                container.appendChild(div);
+            }
+            if (log.length > 5 && !showAll) {
+                const info = document.createElement('div');
+                info.style.cssText = 'color:#555;font-size:0.7rem;padding:2px 0;';
+                info.textContent = `+ ${log.length-5} older`;
+                container.appendChild(info);
+            }
+            document.getElementById('pom-toggle-log').style.display = log.length <= 5 ? 'none' : 'inline-block';
+            container.querySelectorAll('.note-edit').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.dataset.idx);
+                    const item = s.activityLog[idx];
+                    if (!item) return;
+                    const val = prompt('Edit session note (use #tags):', item.note || '');
+                    if (val !== null) {
+                        item.note = val;
+                        item.tags = extractTags(val);
+                        saveState();
+                        renderPomActivityLog();
+                        if (networkInstance) updateGraphSafe();
+                    }
+                });
+            });
+            container.querySelectorAll('.del').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.dataset.idx);
+                    if (!confirm('Delete this session?')) return;
+                    const item = s.activityLog[idx];
+                    if (item.type === 'study') {
+                        const si = s.studySessions.findIndex(x => new Date(x.completedAt).getTime() === new Date(item
+                            .timestamp).getTime());
+                        if (si !== -1) s.studySessions.splice(si, 1);
+                        s.sessionsCompleted = Math.max(0, (s.sessionsCompleted || 0) - 1);
+                    } else {
+                        const bi = s.breakSessions.findIndex(x => new Date(x.completedAt).getTime() === new Date(item
+                            .timestamp).getTime());
+                        if (bi !== -1) s.breakSessions.splice(bi, 1);
+                    }
+                    s.activityLog.splice(idx, 1);
+                    saveState();
+                    renderPomodoro();
+                    if (networkInstance) updateGraphSafe();
+                });
+            });
+        }
+
+        function renderPomHeatmap() {
+            const year = pomYear;
+            document.getElementById('pom-year-label').textContent = year;
+            const s = state.pomodoro;
+            const daily = {};
+            s.studySessions.forEach(ses => {
+                const d = new Date(ses.completedAt);
+                if (d.getFullYear() === year) {
+                    const key = d.toISOString().slice(0, 10);
+                    daily[key] = (daily[key] || 0) + ses.duration;
+                }
+            });
+            let max = 0;
+            for (const v of Object.values(daily)) { if (v > max) max = v; }
+            if (max === 0) max = 1;
+
+            const start = new Date(year, 0, 1);
+            const end = new Date(year, 11, 31);
+            let firstMon = new Date(start);
+            while (firstMon.getDay() !== 1) firstMon.setDate(firstMon.getDate() - 1);
+
+            const weeks = [];
+            let cur = new Date(firstMon);
+            let wk = [];
+            while (cur <= end || wk.length > 0) {
+                if (wk.length === 7) { weeks.push([...wk]);
+                    wk = []; }
+                if (cur <= end) { wk.push(new Date(cur));
+                    cur.setDate(cur.getDate() + 1); } else if (wk.length > 0) {
+                    while (wk.length < 7) wk.push(null);
+                    weeks.push([...wk]);
+                    wk = [];
+                }
+            }
+
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const wm = weeks.map(w => { for (const d of w) { if (d && d.getFullYear() === year) return d.getMonth(); } return -
+                    1; });
+            let spans = [];
+            let idx = 0;
+            while (idx < wm.length) {
+                let m = wm[idx];
+                if (m === -1) { idx++; continue; }
+                let end2 = idx;
+                while (end2 + 1 < wm.length && wm[end2 + 1] === m) end2++;
+                spans.push({ month: m, weeks: end2 - idx + 1 });
+                idx = end2 + 1;
+            }
+
+            let mHtml = `<div class="month-labels">`;
+            for (const sp of spans) {
+                const w = sp.weeks * 16;
+                mHtml += `<div class="month-label-item" style="width:${w}px;margin-right:2px;">${monthNames[sp.month]}</div>`;
+            }
+            mHtml += `</div>`;
+
+            const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            let wHtml = `<div class="weekday-names">`;
+            wd.forEach(d => wHtml += `<div class="weekday-name">${d}</div>`);
+            wHtml += `</div>`;
+
+            const today = new Date().toISOString().slice(0, 10);
+            let gHtml = `<div class="github-grid">`;
+            for (let w = 0; w < weeks.length; w++) {
+                gHtml += `<div class="week-col">`;
+                for (let d = 0; d < 7; d++) {
+                    const dateObj = weeks[w][d];
+                    if (dateObj && dateObj.getFullYear() === year) {
+                        const key = dateObj.toISOString().slice(0, 10);
+                        const mins = daily[key] || 0;
+                        const pct = mins / max;
+                        let level = 0;
+                        if (mins > 0) {
+                            if (pct < 0.25) level = 1;
+                            else if (pct < 0.5) level = 2;
+                            else if (pct < 0.75) level = 3;
+                            else level = 4;
+                        }
+                        const isToday = key === today;
+                        const cls = `day-cell heat-${level}${isToday ? ' today' : ''}`;
+                        gHtml += `<div class="${cls}" data-date="${key}" title="${key}: ${mins} min"></div>`;
+                    } else {
+                        gHtml += `<div class="day-cell heat-0" style="opacity:0.15;"></div>`;
+                    }
+                }
+                gHtml += `</div>`;
+            }
+            gHtml += `</div>`;
+
+            const container = document.getElementById('pom-grid-container');
+            container.innerHTML = `<div class="grid-wrapper">${wHtml}<div>${mHtml}${gHtml}</div></div>`;
+
+            const leg = container.querySelector('.legend') || document.createElement('div');
+            leg.className = 'legend';
+            leg.innerHTML = `
+            <span>Less</span>
+            <span class="legend-squares">
+              <span class="sq heat-0"></span>
+              <span class="sq heat-1"></span>
+              <span class="sq heat-2"></span>
+              <span class="sq heat-3"></span>
+              <span class="sq heat-4"></span>
+            </span>
+            <span>More</span>
+          `;
+            container.appendChild(leg);
+
+            container.querySelectorAll('.day-cell[data-date]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const dateStr = el.dataset.date;
+                    const sessions = s.activityLog.filter(log => new Date(log.timestamp).toISOString().slice(0,
+                        10) === dateStr);
+                    const modal = document.getElementById('modal-overlay');
+                    document.getElementById('modal-title-text').textContent = `📅 ${dateStr}`;
+                    const body = document.getElementById('modal-body');
+                    if (!sessions.length) {
+                        body.innerHTML = '<div style="color:#666;">No sessions.</div>';
+                    } else {
+                        body.innerHTML = sessions.map(ses =>
+                            `<div class="session-detail"><span class="type ${ses.type}">${ses.type}</span> ${ses.duration}min — ${new Date(ses.timestamp).toLocaleTimeString()} ${ses.note ? '– '+ses.note : ''}</div>`
+                        ).join('');
+                    }
+                    modal.classList.add('open');
+                });
+            });
+
+            const wrap = document.getElementById('pom-heatmap-wrap');
+            const todayCell = container.querySelector('.day-cell.today');
+            if (todayCell) {
+                const weekCol = todayCell.closest('.week-col');
+                if (weekCol) {
+                    const offset = weekCol.offsetLeft - wrap.clientWidth / 2 + 16;
+                    wrap.scrollLeft = Math.max(0, offset);
+                }
+            }
+        }
+
+        pomStart.addEventListener('click', pomStartTimer);
+        pomPause.addEventListener('click', pomPauseTimer);
+        pomReset.addEventListener('click', pomResetTimer);
+        pomSkip.addEventListener('click', pomSkipTimer);
+        document.getElementById('pom-toggle-log').addEventListener('click', function() {
+            this.textContent = this.textContent === 'Show All' ? 'Show Less' : 'Show All';
+            renderPomActivityLog();
+        });
+        document.getElementById('pom-year-prev').addEventListener('click', () => { pomYear--;
+            renderPomHeatmap(); });
+        document.getElementById('pom-year-next').addEventListener('click', () => { pomYear++;
+            renderPomHeatmap(); });
+        pomStudyInput.addEventListener('change', function() {
+            state.pomodoro.studyTime = parseInt(this.value) || 25;
+            saveState();
+            if (!pomRunning && pomIsStudy) { pomTimeLeft = parseInt(this.value) * 60;
+                updatePomDisplay(); }
+        });
+        pomBreakInput.addEventListener('change', function() {
+            state.pomodoro.breakTime = parseInt(this.value) || 5;
+            saveState();
+            if (!pomRunning && !pomIsStudy) { pomTimeLeft = parseInt(this.value) * 60;
+                updatePomDisplay(); }
+        });
+
+        // ================================================================
+        // NOTES
+        // ================================================================
+        let notesCurrentId = null;
+        let collapsedParents = new Set();
+        let contextTargetId = null;
+
+        // Track original sizes for nodes to prevent double-enlarge
+        const nodeOriginalSizes = new Map();
+        const nodeOriginalFontSizes = new Map();
+
+        function initNotes() {
+            const s = state.notes;
+            if (!s.notes || !s.notes.length) {
+                s.notes = [
+                    { id: '1', title: 'Welcome', content: 'Welcome to IMP Notes. Hierarchical notes with collapsible trees. Click the <span class="highlight">H</span> button to highlight. Use the <strong>☑</strong> button to add checkboxes to selected text.',
+                        parentId: null, tags: [], color: null },
+                    { id: '2', title: 'Child Example', content: 'This is a child note. Right-click for context menu.',
+                        parentId: '1', tags: [], color: null },
+                    { id: '3', title: 'Another Child', content: 'You can nest notes deeply.', parentId: '1',
+                        tags: [], color: null }
+                ];
+                s.collapsed = [];
+                saveState();
+            }
+            if (s.collapsed) collapsedParents = new Set(s.collapsed);
+            notesCurrentId = s.currentId || s.notes[0]?.id || null;
+            if (notesCurrentId) {
+                const note = s.notes.find(n => n.id === notesCurrentId);
+                if (note) loadNoteIntoEditor(note);
+            }
+            renderNotesList();
+            initDividerResize();
+        }
+
+        function getNoteLevel(note, level = 0) {
+            if (!note.parentId) return level;
+            const parent = state.notes.notes.find(n => n.id === note.parentId);
+            if (!parent) return level;
+            return getNoteLevel(parent, level + 1);
+        }
+
+        function isParentCollapsed(note) {
+            if (!note.parentId) return false;
+            if (collapsedParents.has(note.parentId)) return true;
+            const parent = state.notes.notes.find(n => n.id === note.parentId);
+            if (!parent) return false;
+            return isParentCollapsed(parent);
+        }
+
+        function renderNotesList(filter = '') {
+            const container = document.getElementById('notes-list');
+            const s = state.notes;
+            const notes = s.notes;
+            container.innerHTML = '';
+
+            const rootNotes = notes.filter(n => !n.parentId);
+            const filteredRoots = filter ?
+                rootNotes.filter(n => n.title.toLowerCase().includes(filter.toLowerCase())) :
+                rootNotes;
+
+            function renderNoteWithChildren(note, level) {
+                const hasChildren = notes.some(n => n.parentId === note.id);
+                const isCollapsed = collapsedParents.has(note.id);
+                const isHidden = isParentCollapsed(note);
+                const color = getEffectiveColor(note.id);
+
+                const div = document.createElement('div');
+                div.className = `note-item level-${Math.min(level, 5)}${isHidden ? ' hidden' : ''}`;
+                div.dataset.id = note.id;
+                if (note.id === notesCurrentId) div.classList.add('active');
+                if (color) {
+                    div.style.borderLeftColor = color;
+                } else {
+                    div.style.borderLeftColor = 'transparent';
+                }
+
+                const toggle = document.createElement('span');
+                toggle.className = 'toggle-icon';
+                if (hasChildren) {
+                    toggle.textContent = isCollapsed ? '▶' : '▼';
+                    toggle.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleParent(note.id);
+                    });
+                } else {
+                    toggle.textContent = '·';
+                    toggle.style.color = color || '#444';
+                }
+                div.appendChild(toggle);
+
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'note-title';
+                titleSpan.textContent = note.title || 'Untitled';
+                if (color) titleSpan.style.color = color;
+                div.appendChild(titleSpan);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'del';
+                delBtn.textContent = '×';
+                delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (!confirm('Delete this note and all children?')) return;
+                    deleteNoteById(note.id);
+                });
+                div.appendChild(delBtn);
+
+                div.addEventListener('click', () => {
+                    notesCurrentId = note.id;
+                    s.currentId = note.id;
+                    loadNoteIntoEditor(note);
+                    renderNotesList(document.getElementById('notes-search').value);
+                    saveState();
+                    if (networkInstance) highlightCurrentNote();
+                });
+
+                div.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    contextTargetId = note.id;
+                    const menu = document.getElementById('note-context-menu');
+                    menu.style.display = 'block';
+                    menu.style.left = Math.min(e.clientX, window.innerWidth - 160) + 'px';
+                    menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
+                });
+
+                container.appendChild(div);
+
+                const children = notes.filter(n => n.parentId === note.id);
+                const showChildren = !isCollapsed && (!filter || note.title.toLowerCase().includes(filter
+                    .toLowerCase()));
+                if (showChildren) {
+                    children.forEach(child => renderNoteWithChildren(child, level + 1));
+                } else if (isCollapsed) {
+                    children.forEach(child => {
+                        const childDiv = document.createElement('div');
+                        childDiv.className = `note-item level-${Math.min(level+1, 5)} hidden`;
+                        childDiv.dataset.id = child.id;
+                        container.appendChild(childDiv);
+                        const desc = notes.filter(n => n.parentId === child.id);
+                        desc.forEach(d => {
+                            const dd = document.createElement('div');
+                            dd.className = `note-item level-${Math.min(getNoteLevel(d), 5)} hidden`;
+                            dd.dataset.id = d.id;
+                            container.appendChild(dd);
+                        });
+                    });
+                }
+            }
+
+            filteredRoots.forEach(root => renderNoteWithChildren(root, 0));
+
+            if (notes.length === 0) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'padding:12px;color:#666;font-size:0.9rem;';
+                empty.textContent = 'No notes. Click + to create one.';
+                container.appendChild(empty);
+            }
+            if (networkInstance) setTimeout(() => { if (networkInstance) highlightCurrentNote(); }, 100);
+        }
+
+        function highlightCurrentNote() {
+            if (!networkInstance) return;
+            try {
+                const data = getNetworkData();
+                if (!data) return;
+                const nodes = data.nodes;
+                const allNodes = nodes.get();
+                const updatedNodes = allNodes.map(n => {
+                    n.borderWidth = 2;
+                    n.shadow = { enabled: true, color: 'rgba(255,255,255,0.08)', size: 4 };
+                    n.size = nodeOriginalSizes.get(n.id) || n.size || 16;
+                    n.font.size = nodeOriginalFontSizes.get(n.id) || 14;
+
+                    if (n.id === `note_${notesCurrentId}`) {
+                        n.borderWidth = 6;
+                        n.shadow = { enabled: true, color: 'rgba(255,255,200,0.7)', size: 25 };
+                        const orig = nodeOriginalSizes.get(n.id) || n.size || 16;
+                        n.size = Math.max(orig * 1.8, 28);
+                        n.font.size = 18;
+                    }
+                    return n;
+                });
+                nodes.update(updatedNodes);
+            } catch (e) { /* ignore */ }
+        }
+
+        function toggleParent(id) {
+            if (collapsedParents.has(id)) {
+                collapsedParents.delete(id);
+            } else {
+                collapsedParents.add(id);
+            }
+            state.notes.collapsed = Array.from(collapsedParents);
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+        }
+
+        function loadNoteIntoEditor(note) {
+            if (!note) return;
+            document.getElementById('notes-title').value = note.title || '';
+            document.getElementById('notes-body').innerHTML = note.content || '';
+            notesCurrentId = note.id;
+            state.notes.currentId = note.id;
+            saveState();
+            if (networkInstance) setTimeout(() => { if (networkInstance) highlightCurrentNote(); }, 100);
+        }
+
+        function saveCurrentNote() {
+            const s = state.notes;
+            const note = s.notes.find(n => n.id === notesCurrentId);
+            if (note) {
+                const title = document.getElementById('notes-title').value || 'Untitled';
+                const content = document.getElementById('notes-body').innerHTML;
+                note.title = title;
+                note.content = content;
+                const plainText = getPlainText(content) + ' ' + title;
+                note.tags = extractTags(plainText);
+                saveState();
+                if (networkInstance) updateGraphSafe();
+            }
+        }
+
+        function deleteNoteById(id) {
+            const s = state.notes;
+            function getAllChildren(noteId) {
+                let children = s.notes.filter(n => n.parentId === noteId);
+                let all = [...children];
+                children.forEach(c => { all = all.concat(getAllChildren(c.id)); });
+                return all;
+            }
+            const toDelete = [id, ...getAllChildren(id).map(c => c.id)];
+            toDelete.forEach(id => collapsedParents.delete(id));
+            s.notes = s.notes.filter(n => !toDelete.includes(n.id));
+            if (notesCurrentId && toDelete.includes(notesCurrentId)) {
+                notesCurrentId = s.notes.length ? s.notes[0].id : null;
+                if (notesCurrentId) loadNoteIntoEditor(s.notes.find(n => n.id === notesCurrentId));
+                else { document.getElementById('notes-title').value = '';
+                    document.getElementById('notes-body').innerHTML = ''; }
+            }
+            s.collapsed = Array.from(collapsedParents);
+            saveState();
+            renderNotesList(document.getElementById('notes-search').value);
+            if (networkInstance) updateGraphSafe();
+        }
+
+        function createChildNote(parentId) {
+            const s = state.notes;
+            if (collapsedParents.has(parentId)) {
+                collapsedParents.delete(parentId);
+                s.collapsed = Array.from(collapsedParents);
+            }
+            const parentColor = getEffectiveColor(parentId);
+            const newNote = {
+                id: Date.now().toString(),
+                title: 'Child Note',
+                content: '',
+                parentId: parentId,
+                tags: [],
+                color: parentColor || null
+            };
+            s.notes.push(newNote);
+            notesCurrentId = newNote.id;
+            s.currentId = newNote.id;
+            saveState();
+            loadNoteIntoEditor(newNote);
+            renderNotesList(document.getElementById('notes-search').value);
+            document.getElementById('notes-title').focus();
+            if (networkInstance) updateGraphSafe();
+        }
+
+        // Context menu
+        document.querySelectorAll('#note-context-menu .context-menu-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const action = e.target.dataset.action;
+                if (!contextTargetId) return;
+                const note = state.notes.notes.find(n => n.id === contextTargetId);
+                if (!note) { document.getElementById('note-context-menu').style.display = 'none'; return; }
+
+                if (action === 'rename') {
+                    const newTitle = prompt('Rename note:', note.title);
+                    if (newTitle !== null && newTitle.trim()) {
+                        note.title = newTitle.trim();
+                        if (notesCurrentId === note.id) document.getElementById('notes-title').value = note.title;
+                        saveState();
+                        renderNotesList(document.getElementById('notes-search').value);
+                        if (networkInstance) updateGraphSafe();
+                    }
+                } else if (action === 'color') {
+                    pendingColorTargetId = contextTargetId;
+                    openColorPicker();
+                } else if (action === 'moveup') {
+                    moveNoteUp(contextTargetId);
+                } else if (action === 'movedown') {
+                    moveNoteDown(contextTargetId);
+                } else if (action === 'moveparent') {
+                    pendingMoveTargetId = contextTargetId;
+                    openMoveParentDialog();
+                } else if (action === 'makeroot') {
+                    makeNoteRoot(contextTargetId);
+                } else if (action === 'addchild') {
+                    createChildNote(contextTargetId);
+                } else if (action === 'delete') {
+                    deleteNoteById(contextTargetId);
+                }
+                document.getElementById('note-context-menu').style.display = 'none';
+                contextTargetId = null;
+            });
+        });
+
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('note-context-menu');
+            if (!menu.contains(e.target)) {
+                menu.style.display = 'none';
+                contextTargetId = null;
+            }
+        });
+
+        function openColorPicker() {
+            const modal = document.getElementById('color-modal');
+            document.getElementById('color-picker-free').value = '#ff6b6b';
+            modal.classList.add('open');
+        }
+
+        document.getElementById('color-modal-close').addEventListener('click', () => {
+            document.getElementById('color-modal').classList.remove('open');
+            pendingColorTargetId = null;
+        });
+        document.getElementById('color-apply').addEventListener('click', () => {
+            const color = document.getElementById('color-picker-free').value;
+            if (pendingColorTargetId) {
+                setNoteColor(pendingColorTargetId, color);
+            }
+            document.getElementById('color-modal').classList.remove('open');
+            pendingColorTargetId = null;
+        });
+        document.getElementById('color-remove').addEventListener('click', () => {
+            if (pendingColorTargetId) {
+                removeNoteColor(pendingColorTargetId);
+            }
+            document.getElementById('color-modal').classList.remove('open');
+            pendingColorTargetId = null;
+        });
+
+        function openMoveParentDialog() {
+            const modal = document.getElementById('move-parent-modal');
+            const list = document.getElementById('move-parent-list');
+            list.innerHTML = '';
+            const allNotes = state.notes.notes;
+            const rootOpt = document.createElement('div');
+            rootOpt.className = 'context-menu-item';
+            rootOpt.textContent = 'Root (no parent)';
+            rootOpt.dataset.id = '';
+            rootOpt.addEventListener('click', () => {
+                if (pendingMoveTargetId) {
+                    moveNoteToParent(pendingMoveTargetId, null);
+                    document.getElementById('move-parent-modal').classList.remove('open');
+                    pendingMoveTargetId = null;
+                }
+            });
+            list.appendChild(rootOpt);
+
+            allNotes.forEach(n => {
+                if (n.id === pendingMoveTargetId) return;
+                let isDescendant = false;
+                let current = n;
+                while (current) {
+                    if (current.id === pendingMoveTargetId) { isDescendant = true; break; }
+                    current = allNotes.find(x => x.id === current.parentId);
+                }
+                if (isDescendant) return;
+                const div = document.createElement('div');
+                div.className = 'context-menu-item';
+                const indent = '  '.repeat(getNoteLevel(n));
+                const color = getEffectiveColor(n.id);
+                div.textContent = `${indent}${n.title || 'Untitled'}`;
+                if (color) div.style.borderLeft = `4px solid ${color}`;
+                div.dataset.id = n.id;
+                div.addEventListener('click', () => {
+                    if (pendingMoveTargetId) {
+                        moveNoteToParent(pendingMoveTargetId, n.id);
+                        document.getElementById('move-parent-modal').classList.remove('open');
+                        pendingMoveTargetId = null;
+                    }
+                });
+                list.appendChild(div);
+            });
+            modal.classList.add('open');
+        }
+
+        document.getElementById('move-parent-close').addEventListener('click', () => {
+            document.getElementById('move-parent-modal').classList.remove('open');
+            pendingMoveTargetId = null;
+        });
+
+        document.getElementById('notes-search').addEventListener('input', function() { renderNotesList(this.value); });
+        document.getElementById('notes-add-btn').addEventListener('click', () => {
+            const s = state.notes;
+            const nn = { id: Date.now().toString(), title: 'Untitled', content: '', parentId: null, tags: [],
+                color: null };
+            s.notes.push(nn);
+            notesCurrentId = nn.id;
+            s.currentId = nn.id;
+            saveState();
+            loadNoteIntoEditor(nn);
+            renderNotesList(document.getElementById('notes-search').value);
+            document.getElementById('notes-title').focus();
+            if (networkInstance) updateGraphSafe();
+        });
+        document.getElementById('notes-title').addEventListener('input', saveCurrentNote);
+        document.getElementById('notes-body').addEventListener('input', saveCurrentNote);
+
+        document.getElementById('add-child-btn').addEventListener('click', () => {
+            if (!notesCurrentId) return;
+            const parent = state.notes.notes.find(n => n.id === notesCurrentId);
+            if (!parent) return;
+            createChildNote(notesCurrentId);
+        });
+
+        // ---- TOOLBAR: checkbox command ----
+        function wrapSelectionWithCheckbox() {
+            const body = document.getElementById('notes-body');
+            const sel = window.getSelection();
+            if (!sel.toString().trim()) return;
+
+            const range = sel.getRangeAt(0);
+            const selectedText = range.extractContents();
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'task-item';
+
+            const textSpan = document.createElement('span');
+            textSpan.className = 'task-text';
+            textSpan.appendChild(selectedText);
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'task-checkbox';
+
+            checkbox.addEventListener('change', function(e) {
+                e.stopPropagation();
+                if (this.checked) {
+                    wrapper.classList.add('done');
+                } else {
+                    wrapper.classList.remove('done');
+                }
+                saveCurrentNote();
+                if (networkInstance) updateGraphSafe();
+            });
+
+            checkbox.addEventListener('mousedown', function(e) {
+                e.stopPropagation();
+            });
+
+            wrapper.appendChild(textSpan);
+            wrapper.appendChild(checkbox);
+
+            range.deleteContents();
+            range.insertNode(wrapper);
+
+            range.setStartAfter(wrapper);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            saveCurrentNote();
+            if (networkInstance) updateGraphSafe();
+        }
+
+        // ---- Toolbar command handling ----
+        document.querySelectorAll('#drawer-notes .toolbar button[data-cmd]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const cmd = btn.dataset.cmd;
+
+                if (cmd === 'checkbox') {
+                    wrapSelectionWithCheckbox();
+                    return;
+                }
+
+                const body = document.getElementById('notes-body');
+                const sel = window.getSelection();
+                if (!sel.toString().trim()) return;
+                const range = sel.getRangeAt(0);
+
+                if (cmd === 'clear') {
+                    const txt = document.createTextNode(sel.toString());
+                    range.deleteContents();
+                    range.insertNode(txt);
+                    sel.removeAllRanges();
+                    saveCurrentNote();
+                    return;
+                }
+                if (cmd === 'highlight') {
+                    const sp = document.createElement('span');
+                    sp.className = 'highlight';
+                    sp.textContent = sel.toString();
+                    range.deleteContents();
+                    range.insertNode(sp);
+                    sel.removeAllRanges();
+                    saveCurrentNote();
+                    return;
+                }
+                let el;
+                if (cmd === 'bold') el = document.createElement('strong');
+                else if (cmd === 'italic') el = document.createElement('em');
+                else if (cmd === 'underline') el = document.createElement('u');
+                el.textContent = sel.toString();
+                range.deleteContents();
+                range.insertNode(el);
+                sel.removeAllRanges();
+                saveCurrentNote();
+            });
+        });
+
+        // ================================================================
+        // NOTE IMAGES (drag & drop / paste gallery)
+        // ================================================================
+        const IMG_MAX_FILE_MB = 25;
+        const IMG_STORE_MAX_DIM = 1400;
+        const IMG_STORE_QUALITY = 0.82;
+        const IMG_DEFAULT_MAX_W = 320;
+        const IMG_DEFAULT_MAX_H = 240;
+        const IMG_MIN_W = 48;
+        const IMG_MAX_W = 2400;
+
+        let imgCtxTarget = null;
+
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const fr = new FileReader();
+                fr.onload = () => resolve(fr.result);
+                fr.onerror = () => reject(fr.error || new Error('read error'));
+                fr.readAsDataURL(file);
+            });
+        }
+
+        function decodeImage(src) {
+            return new Promise((resolve, reject) => {
+                const im = new Image();
+                im.onload = () => resolve(im);
+                im.onerror = () => reject(new Error('image decode error'));
+                im.src = src;
+            });
+        }
+
+        async function prepareNoteImage(file) {
+            const isGif = /image\/gif/i.test(file.type) || /\.gif$/i.test(file.name);
+            const raw = await readFileAsDataURL(file);
+            const im = await decodeImage(raw);
+            const w = im.naturalWidth || im.width || IMG_DEFAULT_MAX_W;
+            const h = im.naturalHeight || im.height || IMG_DEFAULT_MAX_H;
+            if (isGif) {
+                return { dataUrl: raw, width: w, height: h };
+            }
+            const scale = Math.min(1, IMG_STORE_MAX_DIM / Math.max(w, h));
+            const tw = Math.max(1, Math.round(w * scale));
+            const th = Math.max(1, Math.round(h * scale));
+            if (scale < 1 || file.size > 400 * 1024) {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = tw;
+                    canvas.height = th;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(im, 0, 0, tw, th);
+                    const isPng = /image\/png/i.test(file.type);
+                    const out = isPng ?
+                        canvas.toDataURL('image/png') :
+                        canvas.toDataURL('image/jpeg', IMG_STORE_QUALITY);
+                    return { dataUrl: out, width: tw, height: th };
+                } catch (e) {
+                    return { dataUrl: raw, width: w, height: h };
+                }
+            }
+            return { dataUrl: raw, width: w, height: h };
+        }
+
+        function defaultImageWidth(w, h) {
+            const scale = Math.min(1, IMG_DEFAULT_MAX_W / (w || 1), IMG_DEFAULT_MAX_H / (h || 1));
+            return Math.max(IMG_MIN_W, Math.round((w || IMG_DEFAULT_MAX_W) * scale));
+        }
+
+        function placeCaretAtPoint(x, y) {
+            let range = null;
+            if (document.caretRangeFromPoint) {
+                range = document.caretRangeFromPoint(x, y);
+            } else if (document.caretPositionFromPoint) {
+                const pos = document.caretPositionFromPoint(x, y);
+                if (pos) {
+                    range = document.createRange();
+                    range.setStart(pos.offsetNode, pos.offset);
+                    range.collapse(true);
+                }
+            }
+            if (range) {
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        }
+
+        function insertNodeAtCaret(node) {
+            const body = document.getElementById('notes-body');
+            body.focus();
+            const sel = window.getSelection();
+            let range = null;
+            if (sel && sel.rangeCount > 0) {
+                const r = sel.getRangeAt(0);
+                if (body.contains(r.startContainer)) range = r;
+            }
+            if (!range) {
+                range = document.createRange();
+                range.selectNodeContents(body);
+                range.collapse(false);
+            }
+            range.deleteContents();
+            range.insertNode(node);
+            if (!node.nextSibling) {
+                const br = document.createElement('br');
+                node.parentNode.appendChild(br);
+            }
+            range.setStartAfter(node);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            saveCurrentNote();
+        }
+
+        async function insertImageFile(file) {
+            if (!notesCurrentId) {
+                alert('Select or create a note first.');
+                return;
+            }
+            if (!file || !/^image\//i.test(file.type || '')) return;
+            if (file.size > IMG_MAX_FILE_MB * 1024 * 1024) {
+                alert('Image too large (max ' + IMG_MAX_FILE_MB + 'MB).');
+                return;
+            }
+            let prepared;
+            try {
+                prepared = await prepareNoteImage(file);
+            } catch (e) {
+                alert('Could not read that image.');
+                return;
+            }
+            const img = document.createElement('img');
+            img.className = 'note-image';
+            img.src = prepared.dataUrl;
+            img.alt = file.name || 'image';
+            const dw = defaultImageWidth(prepared.width, prepared.height);
+            img.style.width = dw + 'px';
+            img.dataset.defaultWidth = String(dw);
+            insertNodeAtCaret(img);
+        }
+
+        function adjustNoteImageSize(img, factor) {
+            const cur = parseFloat(img.style.width) || img.getBoundingClientRect().width || IMG_DEFAULT_MAX_W;
+            let w = Math.round(cur * factor);
+            w = Math.max(IMG_MIN_W, Math.min(IMG_MAX_W, w));
+            img.style.width = w + 'px';
+            img.style.height = 'auto';
+            saveCurrentNote();
+        }
+
+        function resetNoteImageSize(img) {
+            const dw = parseFloat(img.dataset.defaultWidth) || IMG_DEFAULT_MAX_W;
+            img.style.width = dw + 'px';
+            img.style.height = 'auto';
+            saveCurrentNote();
+        }
+
+        function openImageLightbox(src) {
+            const lb = document.getElementById('img-lightbox');
+            const lbImg = document.getElementById('img-lightbox-img');
+            lbImg.src = src;
+            lb.classList.add('open');
+        }
+
+        function closeImageLightbox() {
+            const lb = document.getElementById('img-lightbox');
+            if (!lb.classList.contains('open')) return;
+            lb.classList.remove('open');
+            document.getElementById('img-lightbox-img').src = '';
+        }
+
+        (function initNoteImages() {
+            const body = document.getElementById('notes-body');
+            const lb = document.getElementById('img-lightbox');
+            const imgMenu = document.getElementById('image-context-menu');
+
+            // --- lightbox close ---
+            lb.addEventListener('click', closeImageLightbox);
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeImageLightbox();
+            });
+
+            // --- drag over ---
+            body.addEventListener('dragover', (e) => {
+                const dt = e.dataTransfer;
+                if (!dt) return;
+                const types = Array.from(dt.types || []);
+                if (types.includes('Files')) {
+                    e.preventDefault();
+                    dt.dropEffect = 'copy';
+                    body.classList.add('drag-over');
+                }
+            });
+            body.addEventListener('dragleave', (e) => {
+                if (e.target === body) body.classList.remove('drag-over');
+            });
+
+            // --- drop ---
+            body.addEventListener('drop', async (e) => {
+                const dt = e.dataTransfer;
+                if (!dt) return;
+                const all = Array.from(dt.files || []);
+                if (!all.length) return;
+                e.preventDefault();
+                body.classList.remove('drag-over');
+                body.focus();
+                placeCaretAtPoint(e.clientX, e.clientY);
+                const imgs = all.filter(f => /^image\//i.test(f.type || ''));
+                if (!imgs.length) return;
+                for (const f of imgs) {
+                    await insertImageFile(f);
+                }
+            });
+
+            // --- paste ---
+            body.addEventListener('paste', async (e) => {
+                const cd = e.clipboardData;
+                if (!cd) return;
+                const files = [];
+                for (const item of Array.from(cd.items || [])) {
+                    if (item.kind === 'file' && /^image\//i.test(item.type || '')) {
+                        const f = item.getAsFile();
+                        if (f) files.push(f);
+                    }
+                }
+                if (!files.length) return;
+                e.preventDefault();
+                for (const f of files) {
+                    await insertImageFile(f);
+                }
+            });
+
+            // --- click = open gallery ---
+            body.addEventListener('click', (e) => {
+                const t = e.target;
+                if (t && t.tagName === 'IMG' && t.classList.contains('note-image')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openImageLightbox(t.src);
+                }
+            });
+
+            // --- right click = size menu ---
+            body.addEventListener('contextmenu', (e) => {
+                const t = e.target;
+                if (t && t.tagName === 'IMG' && t.classList.contains('note-image')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    imgCtxTarget = t;
+                    imgMenu.style.display = 'block';
+                    imgMenu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
+                    imgMenu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+                }
+            });
+
+            imgMenu.querySelectorAll('.context-menu-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    const action = e.currentTarget.dataset.action;
+                    const img = imgCtxTarget;
+                    imgMenu.style.display = 'none';
+                    imgCtxTarget = null;
+                    if (!img || !img.isConnected) return;
+                    if (action === 'bigger') {
+                        adjustNoteImageSize(img, 1.25);
+                    } else if (action === 'smaller') {
+                        adjustNoteImageSize(img, 0.8);
+                    } else if (action === 'reset') {
+                        resetNoteImageSize(img);
+                    } else if (action === 'open') {
+                        openImageLightbox(img.src);
+                    } else if (action === 'delete') {
+                        img.remove();
+                        saveCurrentNote();
+                        if (networkInstance) updateGraphSafe();
+                    }
+                });
+            });
+
+            document.addEventListener('click', (e) => {
+                if (imgMenu.style.display === 'block' && !imgMenu.contains(e.target)) {
+                    imgMenu.style.display = 'none';
+                    imgCtxTarget = null;
+                }
+            });
+        })();
+
+        // ================================================================
+        // MUSIC
+        // ================================================================
+        let musicAudioElement = null;
+        let musicPlaying = false;
+        let musicProgressInterval = null;
+        let musicSongs = [];
+        let currentSongIndex = 0;
+        let visCanvas = document.getElementById('music-visualizer');
+        let visCtx = null;
+        let analyser = null;
+        let dataArray = null;
+        let visualizerRunning = false;
+        let animFrameId = null;
+        let audioCtx = null;
+        let sourceNode = null;
+
+        function initVisualizer() {
+            if (!visCanvas) return;
+            visCanvas.width = visCanvas.clientWidth * window.devicePixelRatio || 260;
+            visCanvas.height = visCanvas.clientHeight * window.devicePixelRatio || 60;
+            visCtx = visCanvas.getContext('2d');
+            visCtx.fillStyle = '#0a0a0a';
+            visCtx.fillRect(0, 0, visCanvas.width, visCanvas.height);
+        }
+
+        function startVisualizer() {
+            if (!state.settings.enabled.music) return;
+            if (visualizerRunning) return;
+            if (!visCtx) initVisualizer();
+            if (!musicAudioElement || !musicAudioElement.src) return;
+            try {
+                if (!audioCtx) { audioCtx = new(window.AudioContext || window.webkitAudioContext)(); }
+                if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+                if (sourceNode) { try { sourceNode.disconnect(); } catch (e) {} }
+                sourceNode = audioCtx.createMediaElementSource(musicAudioElement);
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 128;
+                sourceNode.connect(analyser);
+                analyser.connect(audioCtx.destination);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                visualizerRunning = true;
+                drawVisualizer();
+            } catch (e) { console.warn('Visualizer init error:', e);
+                visualizerRunning = false; }
+        }
+
+        function stopVisualizer() {
+            visualizerRunning = false;
+            if (animFrameId) { cancelAnimationFrame(animFrameId);
+                animFrameId = null; }
+            if (visCtx) { visCtx.fillStyle = '#0a0a0a';
+                visCtx.fillRect(0, 0, visCanvas.width, visCanvas.height); }
+            try { if (sourceNode) { sourceNode.disconnect();
+                    sourceNode = null; } if (analyser) { analyser.disconnect();
+                    analyser = null; } } catch (e) {}
+        }
+
+        function drawVisualizer() {
+            if (!visualizerRunning || !analyser || !dataArray) {
+                if (visCtx) { visCtx.fillStyle = '#0a0a0a';
+                    visCtx.fillRect(0, 0, visCanvas.width, visCanvas.height); }
+                return;
+            }
+            analyser.getByteFrequencyData(dataArray);
+            const w = visCanvas.width;
+            const h = visCanvas.height;
+            const barWidth = Math.max(2, w / dataArray.length * 0.8);
+            let x = 0;
+            visCtx.fillStyle = '#0a0a0a';
+            visCtx.fillRect(0, 0, w, h);
+            for (let i = 0; i < dataArray.length; i++) {
+                const val = dataArray[i];
+                const pct = val / 255;
+                const brightness = Math.round(pct * 200 + 55);
+                const barHeight = pct * h * 0.85;
+                visCtx.fillStyle = `rgb(${brightness},${brightness},${brightness})`;
+                visCtx.fillRect(x, h - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+            animFrameId = requestAnimationFrame(drawVisualizer);
+        }
+
+        function initMusic() {
+            const s = state.music;
+            musicSongs = s.songs || [];
+            const vol = s.volume || 70;
+            document.getElementById('music-volume-fill').style.width = vol + '%';
+            document.getElementById('music-volume-label').textContent = vol + '%';
+            if (musicSongs.length) {
+                const idx = s.currentIndex || 0;
+                if (idx < musicSongs.length) loadMusicSong(idx);
+            }
+            renderMusicPlaylist();
+            updateMusicNowPlaying();
+            document.getElementById('music-count').textContent = musicSongs.length + ' songs';
+            initVisualizer();
+            if (state.settings.enabled.music && document.getElementById('drawer-music').classList.contains('open')) {
+                setTimeout(startVisualizer, 300);
+            }
+        }
+
+        function loadMusicSong(index) {
+            const s = state.music;
+            if (!musicSongs.length || index < 0 || index >= musicSongs.length) return;
+            s.currentIndex = index;
+            currentSongIndex = index;
+            const song = musicSongs[index];
+            if (!song.file) { updateMusicNowPlaying();
+                renderMusicPlaylist(); return; }
+            if (musicAudioElement) { musicAudioElement.pause();
+                musicAudioElement = null; }
+            const url = URL.createObjectURL(song.file);
+            musicAudioElement = new Audio(url);
+            musicAudioElement.volume = (s.volume || 70) / 100;
+            musicAudioElement.addEventListener('ended', () => { musicNext(); });
+            musicAudioElement.addEventListener('error', (e) => { console.warn('Audio error:', e); });
+            updateMusicNowPlaying();
+            renderMusicPlaylist();
+            document.getElementById('music-progress-fill').style.width = '0%';
+            document.getElementById('music-elapsed').textContent = '0:00';
+            if (song.metadata && song.metadata.duration) {
+                document.getElementById('music-total').textContent = formatTime(song.metadata.duration);
+            } else {
+                document.getElementById('music-total').textContent = '0:00';
+            }
+            stopVisualizer();
+            if (state.settings.enabled.music && document.getElementById('drawer-music').classList.contains('open')) {
+                setTimeout(startVisualizer, 200);
+            }
+            saveState();
+        }
+
+        function updateMusicNowPlaying() {
+            const s = state.music;
+            const song = musicSongs[s.currentIndex];
+            if (!song) {
+                document.getElementById('music-title').textContent = '—';
+                document.getElementById('music-artist').textContent = '—';
+                document.getElementById('music-album').textContent = '—';
+                document.getElementById('music-art').innerHTML = '🎵';
+                return;
+            }
+            const meta = song.metadata || {};
+            document.getElementById('music-title').textContent = meta.title || '—';
+            document.getElementById('music-artist').textContent = meta.artist || '—';
+            document.getElementById('music-album').textContent = meta.album || '—';
+            if (meta.art) {
+                const img = new Image();
+                img.onload = () => { document.getElementById('music-art').innerHTML = `<img src="${meta.art}" alt="cover">`; };
+                img.onerror = () => { document.getElementById('music-art').innerHTML = '🎵'; };
+                img.src = meta.art;
+            } else {
+                document.getElementById('music-art').innerHTML = '🎵';
+            }
+            document.getElementById('music-count').textContent = musicSongs.length + ' songs';
+        }
+
+        function renderMusicPlaylist() {
+            const container = document.getElementById('music-playlist');
+            const s = state.music;
+            container.innerHTML = '';
+            if (!musicSongs.length) {
+                container.innerHTML =
+                    '<div style="color:#555;padding:4px;text-align:center;font-size:0.8rem;">No songs — load a folder</div>';
+                return;
+            }
+            musicSongs.forEach((song, idx) => {
+                const div = document.createElement('div');
+                div.className = 'pl-item' + (idx === s.currentIndex ? ' active' : '');
+                const meta = song.metadata || {};
+                const dur = meta.duration ? formatTime(meta.duration) : '';
+                div.innerHTML = `<span>${meta.title || 'Untitled'}</span><span class="dur">${dur}</span>`;
+                div.addEventListener('click', () => {
+                    if (!musicAudioElement) { loadMusicSong(idx);
+                        setTimeout(() => musicTogglePlay(), 200); } else { loadMusicSong(idx); if (
+                            musicPlaying) { setTimeout(() => musicAudioElement.play().catch(() => {}),
+                            100); } }
+                });
+                container.appendChild(div);
+            });
+        }
+
+        function formatTime(seconds) {
+            if (!seconds || isNaN(seconds)) return '0:00';
+            const s = Math.floor(seconds);
+            const m = Math.floor(s / 60);
+            const sec = s % 60;
+            return `${m}:${String(sec).padStart(2,'0')}`;
+        }
+
+        function musicTogglePlay() {
+            if (!musicSongs.length) return;
+            if (!musicAudioElement) { loadMusicSong(currentSongIndex);
+                setTimeout(() => musicTogglePlay(), 200); return; }
+            if (musicPlaying) {
+                musicAudioElement.pause();
+                musicPlaying = false;
+                document.getElementById('music-play').textContent = '▶';
+                clearInterval(musicProgressInterval);
+            } else {
+                musicAudioElement.play().catch((err) => {
+                    console.warn('Play error:', err);
+                    if (audioCtx && audioCtx.state === 'suspended') { audioCtx.resume().then(() => {
+                            musicAudioElement.play().catch(() => {});
+                        }); }
+                });
+                musicPlaying = true;
+                document.getElementById('music-play').textContent = '⏸';
+                startMusicProgress();
+                if (!visualizerRunning) startVisualizer();
+            }
+        }
+
+        function musicStop() {
+            if (musicAudioElement) { musicAudioElement.pause();
+                musicAudioElement.currentTime = 0; }
+            musicPlaying = false;
+            document.getElementById('music-play').textContent = '▶';
+            clearInterval(musicProgressInterval);
+            document.getElementById('music-progress-fill').style.width = '0%';
+            document.getElementById('music-elapsed').textContent = '0:00';
+        }
+
+        function musicPrev() {
+            if (!musicSongs.length) return;
+            const s = state.music;
+            const idx = (s.currentIndex - 1 + musicSongs.length) % musicSongs.length;
+            loadMusicSong(idx);
+            if (musicPlaying) { setTimeout(() => musicAudioElement.play().catch(() => {}), 100); }
+        }
+
+        function musicNext() {
+            if (!musicSongs.length) return;
+            const s = state.music;
+            const idx = (s.currentIndex + 1) % musicSongs.length;
+            loadMusicSong(idx);
+            if (musicPlaying) { setTimeout(() => musicAudioElement.play().catch(() => {}), 100); }
+        }
+
+        function startMusicProgress() {
+            clearInterval(musicProgressInterval);
+            musicProgressInterval = setInterval(() => {
+                if (!musicAudioElement || !musicAudioElement.duration || isNaN(musicAudioElement.duration) ||
+                    musicAudioElement.duration === 0) return;
+                const pct = (musicAudioElement.currentTime / musicAudioElement.duration) * 100;
+                document.getElementById('music-progress-fill').style.width = pct + '%';
+                document.getElementById('music-elapsed').textContent = formatTime(musicAudioElement.currentTime);
+                const s = state.music;
+                const song = musicSongs[s.currentIndex];
+                if (song && song.metadata && !song.metadata.duration) {
+                    song.metadata.duration = musicAudioElement.duration;
+                    saveState();
+                }
+            }, 200);
+        }
+
+        function musicSetVolume(val) {
+            const v = Math.min(100, Math.max(0, val));
+            state.music.volume = v;
+            if (musicAudioElement) musicAudioElement.volume = v / 100;
+            document.getElementById('music-volume-fill').style.width = v + '%';
+            document.getElementById('music-volume-label').textContent = v + '%';
+            saveState();
+        }
+
+        document.getElementById('music-play').addEventListener('click', musicTogglePlay);
+        document.getElementById('music-stop').addEventListener('click', musicStop);
+        document.getElementById('music-prev').addEventListener('click', musicPrev);
+        document.getElementById('music-next').addEventListener('click', musicNext);
+        document.getElementById('music-progress-bar').addEventListener('click', (e) => {
+            if (!musicAudioElement || !musicAudioElement.duration || isNaN(musicAudioElement.duration) || musicAudioElement
+                .duration === 0) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            const time = pct * musicAudioElement.duration;
+            musicAudioElement.currentTime = time;
+            document.getElementById('music-progress-fill').style.width = pct * 100 + '%';
+            document.getElementById('music-elapsed').textContent = formatTime(time);
+        });
+        document.getElementById('music-volume-bar').addEventListener('click', (e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            musicSetVolume(Math.round(pct * 100));
+        });
+        document.getElementById('music-folder-btn').addEventListener('click', () => {
+            document.getElementById('music-file-input').click();
+        });
+        document.getElementById('music-file-input').addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            if (!files.length) return;
+            if (musicAudioElement) { musicAudioElement.pause();
+                musicAudioElement = null; }
+            musicPlaying = false;
+            document.getElementById('music-play').textContent = '▶';
+            clearInterval(musicProgressInterval);
+            stopVisualizer();
+            musicSongs = [];
+            const groups = {};
+            const covers = {};
+            for (const file of files) {
+                const name = file.name.toLowerCase();
+                let folder = 'Root';
+                if (file.webkitRelativePath) {
+                    const parts = file.webkitRelativePath.split('/');
+                    if (parts.length > 1) folder = parts.slice(0, -1).join('/');
+                }
+                if (name.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+                    if (!covers[folder]) covers[folder] = [];
+                    covers[folder].push(file);
+                } else if (name.match(/\.(mp3|flac|m4a|ogg|wav|webm)$/i)) {
+                    if (!groups[folder]) groups[folder] = [];
+                    groups[folder].push(file);
+                }
+            }
+            for (const [folder, audioFiles] of Object.entries(groups)) {
+                let coverUrl = null;
+                const cl = covers[folder] || [];
+                const pref = ['cover.jpg', 'folder.jpg', 'cover.jpeg', 'folder.jpeg', 'album.jpg', 'album.jpeg'];
+                let cf = null;
+                for (const p of pref) { const found = cl.find(f => f.name.toLowerCase() === p); if (found) { cf = found;
+                        break; } }
+                if (!cf && cl.length) cf = cl[0];
+                if (cf) { try { coverUrl = URL.createObjectURL(cf); } catch (ex) {} }
+                for (const file of audioFiles) {
+                    const meta = await extractMusicMetadata(file);
+                    const art = meta.picture || coverUrl;
+                    musicSongs.push({
+                        file: file,
+                        metadata: {
+                            title: meta.title || file.name.replace(/\.[^.]+$/, ''),
+                            artist: meta.artist || 'Unknown',
+                            album: meta.album || 'Unknown',
+                            duration: 0,
+                            art: art,
+                        }
+                    });
+                }
+            }
+            state.music.songs = musicSongs;
+            state.music.currentIndex = 0;
+            saveState();
+            if (musicSongs.length) {
+                loadMusicSong(0);
+                renderMusicPlaylist();
+                updateMusicNowPlaying();
+                document.getElementById('music-count').textContent = musicSongs.length + ' songs';
+                if (state.settings.enabled.music) { stopVisualizer();
+                    setTimeout(startVisualizer, 300); }
+            }
+            e.target.value = '';
+        });
+
+        async function extractMusicMetadata(file) {
+            const result = { title: '', artist: '', album: '', picture: null };
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext === 'mp3') {
+                try {
+                    const buf = await file.arrayBuffer();
+                    const data = new Uint8Array(buf);
+                    if (data.length > 10 && data[0] === 0x49 && data[1] === 0x44 && data[2] === 0x33) {
+                        const size = (data[6] << 21) | (data[7] << 14) | (data[8] << 7) | data[9];
+                        let offset = 10;
+                        const end = Math.min(offset + size, data.length);
+                        while (offset + 10 < end) {
+                            const id = String.fromCharCode(data[offset], data[offset + 1], data[offset + 2], data[
+                            offset + 3]);
+                            const fsize = (data[offset + 4] << 24) | (data[offset + 5] << 16) | (data[offset + 6] <<
+                                8) | data[offset + 7];
+                            offset += 10;
+                            if (offset + fsize > end) break;
+                            const frame = data.slice(offset, offset + fsize);
+                            const dec = (enc) => {
+                                try {
+                                    if (enc === 0x00 || enc === 0x03) return new TextDecoder('utf-8').decode(frame
+                                        .slice(1)).replace(/\0/g, '').trim();
+                                    if (enc === 0x01 || enc === 0x02) return new TextDecoder('utf-16le').decode(
+                                        frame.slice(1)).replace(/\0/g, '').trim();
+                                    return '';
+                                } catch (ex) { return ''; }
+                            };
+                            if (id === 'TIT2') { const enc = frame[0];
+                                result.title = dec(enc); } else if (id === 'TPE1') { const enc = frame[0];
+                                result.artist = dec(enc); } else if (id === 'TALB') { const enc = frame[0];
+                                result.album = dec(enc); } else if (id === 'APIC') {
+                                try {
+                                    let pos = 1;
+                                    while (pos < frame.length && frame[pos] !== 0) pos++;
+                                    pos++;
+                                    pos++;
+                                    while (pos < frame.length && frame[pos] !== 0) pos++;
+                                    pos++;
+                                    const pic = frame.slice(pos);
+                                    if (pic.length > 1000) {
+                                        const blob = new Blob([pic], { type: 'image/jpeg' });
+                                        result.picture = URL.createObjectURL(blob);
+                                    }
+                                } catch (ex) {}
+                            }
+                            offset += fsize;
+                        }
+                    }
+                } catch (ex) { console.warn('MP3 parse error:', ex); }
+            } else if (ext === 'm4a' || ext === 'mp4') {
+                try {
+                    const buf = await file.arrayBuffer();
+                    const data = new Uint8Array(buf);
+                    const findAtom = (start, type) => {
+                        let pos = start;
+                        while (pos + 8 < data.length) {
+                            const sz = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos +
+                            3];
+                            if (sz === 0) break;
+                            const t = String.fromCharCode(data[pos + 4], data[pos + 5], data[pos + 6], data[pos +
+                            7]);
+                            if (t === type) return pos;
+                            pos += sz;
+                        }
+                        return -1;
+                    };
+                    const moov = findAtom(0, 'moov');
+                    if (moov !== -1) {
+                        let pos = moov + 8;
+                        while (pos + 8 < data.length) {
+                            const sz = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos +
+                            3];
+                            if (sz === 0) break;
+                            const t = String.fromCharCode(data[pos + 4], data[pos + 5], data[pos + 6], data[pos +
+                            7]);
+                            if (t === 'udta' || t === 'meta') {
+                                let inner = pos + 8;
+                                const innerEnd = pos + sz;
+                                while (inner + 8 < innerEnd) {
+                                    const isz = (data[inner] << 24) | (data[inner + 1] << 16) | (data[inner + 2] <<
+                                        8) | data[inner + 3];
+                                    if (isz === 0) break;
+                                    const it = String.fromCharCode(data[inner + 4], data[inner + 5], data[inner +
+                                        6], data[inner + 7]);
+                                    if (it === 'ilst') {
+                                        let ilst = inner + 8;
+                                        const ilstEnd = inner + isz;
+                                        while (ilst + 8 < ilstEnd) {
+                                            const isz2 = (data[ilst] << 24) | (data[ilst + 1] << 16) | (data[
+                                                ilst + 2] << 8) | data[ilst + 3];
+                                            if (isz2 === 0) break;
+                                            const it2 = String.fromCharCode(data[ilst + 4], data[ilst + 5],
+                                                data[ilst + 6], data[ilst + 7]);
+                                            let dStart = ilst + 8;
+                                            if (dStart + 8 < ilst + isz2) {
+                                                const dsz = (data[dStart] << 24) | (data[dStart + 1] << 16) |
+                                                    (data[dStart + 2] << 8) | data[dStart + 3];
+                                                const dt = String.fromCharCode(data[dStart + 4], data[
+                                                    dStart + 5], data[dStart + 6], data[dStart + 7]);
+                                                if (dt === 'data') {
+                                                    const vStart = dStart + 8 + 4;
+                                                    const vEnd = dStart + dsz;
+                                                    if (vEnd <= data.length && vStart < vEnd) {
+                                                        const str = new TextDecoder('utf-8').decode(data
+                                                            .slice(vStart, vEnd)).replace(/\0/g, '')
+                                                            .trim();
+                                                        if (it2 === '\xA9nam') result.title = str;
+                                                        else if (it2 === '\xA9ART') result.artist = str;
+                                                        else if (it2 === '\xA9alb') result.album = str;
+                                                    }
+                                                }
+                                            }
+                                            ilst += isz2;
+                                        }
+                                        break;
+                                    }
+                                    inner += isz;
+                                }
+                                break;
+                            }
+                            pos += sz;
+                        }
+                    }
+                } catch (ex) { console.warn('M4A parse error:', ex); }
+            }
+            return result;
+        }
+
+        // ================================================================
+        // GRAPH — INCREMENTAL UPDATES + SMOOTH ANIMATION
+        // ================================================================
+        let networkInstance = null;
+        let graphAnimTimer = null;
+        let graphAnimRunning = false;
+        let graphAnimFullNodes = [];
+        let graphAnimFullEdges = [];
+        let graphAnimStep = 0;
+        let graphAnimDirection = 1;
+
+        function getNetworkData() {
+            if (!networkInstance) return null;
+            try {
+                if (typeof networkInstance.getData === 'function') {
+                    return networkInstance.getData();
+                }
+                if (networkInstance._data && networkInstance._data.nodes && networkInstance._data.edges) {
+                    return networkInstance._data;
+                }
+                if (networkInstance.body && networkInstance.body.data) {
+                    return networkInstance.body.data;
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function buildGraphData() {
+            const nodes = [];
+            const edges = [];
+            const nodeMap = {};
+
+            function addNode(id, label, type, size = 16, color = '#666') {
+                if (nodeMap[id]) return nodeMap[id];
+                const shape = type === 'tag' ? 'triangle' : 'dot';
+                const fontColor = type === 'tag' ? '#fff' : '#ddd';
+                const node = {
+                    id,
+                    label,
+                    type,
+                    size,
+                    color,
+                    shape,
+                    font: { color: fontColor, face: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+                        size: type === 'tag' ? 12 : 14 },
+                    borderWidth: 2,
+                    shadow: { enabled: true, color: 'rgba(255,255,255,0.08)', size: 4 }
+                };
+                if (type === 'tag') {
+                    node.rotation = 0;
+                }
+                nodeMap[id] = node;
+                nodes.push(node);
+                return node;
+            }
+
+            const allNotes = state.notes.notes || [];
+            let maxContentLen = 1;
+            allNotes.forEach(n => { const l = (n.content || '').length + (n.title || '').length; if (l > maxContentLen)
+                    maxContentLen = l; });
+
+            allNotes.forEach(note => {
+                const contentLen = (note.content || '').length + (note.title || '').length;
+                const size = Math.max(14, 12 + (contentLen / maxContentLen) * 18);
+                const color = getEffectiveColor(note.id) || '#888';
+                const node = addNode(`note_${note.id}`, note.title || 'Untitled', 'note', size, color);
+                node._tags = note.tags || [];
+                node._noteId = note.id;
+                node.originalColor = color;
+                if (note.id === notesCurrentId) {
+                    node.borderWidth = 6;
+                    node.shadow = { enabled: true, color: 'rgba(255,255,200,0.7)', size: 25 };
+                    node.size = size * 1.8;
+                    node.font.size = 18;
+                }
+                if (note.parentId) {
+                    edges.push({
+                        id: `note_${note.id}-note_${note.parentId}`,
+                        from: `note_${note.id}`,
+                        to: `note_${note.parentId}`,
+                        color: '#444',
+                        width: 1.5,
+                        smooth: { type: 'continuous' }
+                    });
+                }
+            });
+
+            if (state.settings.showSessions) {
+                const sessions = (state.pomodoro.activityLog || []).filter(s => s.tags && s.tags.length > 0);
+                let maxDur = 1;
+                sessions.forEach(s => { if (s.duration > maxDur) maxDur = s.duration; });
+
+                sessions.forEach((session, idx) => {
+                    const dur = session.duration || 1;
+                    const size = Math.max(12, 10 + (dur / maxDur) * 20);
+                    const color = session.type === 'study' ? '#999' : '#666';
+                    const label = `${session.type} ${dur}m`;
+                    const node = addNode(`session_${idx}`, label, 'session', size, color);
+                    node._sessionIdx = idx;
+                    node._tags = session.tags || [];
+                    node._duration = dur;
+                });
+            }
+
+            const tagTotalTime = {};
+            (state.pomodoro.activityLog || []).forEach(session => {
+                (session.tags || []).forEach(tag => {
+                    if (!tagTotalTime[tag]) tagTotalTime[tag] = 0;
+                    tagTotalTime[tag] += session.duration || 0;
+                });
+            });
+
+            const tagUsage = {};
+            allNotes.forEach(note => {
+                (note.tags || []).forEach(tag => {
+                    if (!tagUsage[tag]) tagUsage[tag] = { notes: [], sessions: [] };
+                    tagUsage[tag].notes.push(note.id);
+                });
+            });
+            if (state.settings.showSessions) {
+                const sessions = (state.pomodoro.activityLog || []).filter(s => s.tags && s.tags.length > 0);
+                sessions.forEach((session, idx) => {
+                    (session.tags || []).forEach(tag => {
+                        if (!tagUsage[tag]) tagUsage[tag] = { notes: [], sessions: [] };
+                        tagUsage[tag].sessions.push(idx);
+                    });
+                });
+            }
+
+            for (const [tag, usage] of Object.entries(tagUsage)) {
+                if (usage.notes.length > 0) {
+                    const totalTime = tagTotalTime[tag] || 0;
+                    const label = totalTime > 0 ? `#${tag} (${totalTime}m)` : `#${tag}`;
+                    const tagNode = addNode(`tag_${tag}`, label, 'tag', 14, '#fff');
+                    tagNode._tagName = tag;
+                    usage.notes.forEach(noteId => {
+                        edges.push({
+                            id: `tag_${tag}-note_${noteId}`,
+                            from: `tag_${tag}`,
+                            to: `note_${noteId}`,
+                            color: '#555',
+                            width: 1,
+                            smooth: { type: 'continuous' }
+                        });
+                    });
+                    if (state.settings.showSessions) {
+                        usage.sessions.forEach(sessIdx => {
+                            edges.push({
+                                id: `tag_${tag}-session_${sessIdx}`,
+                                from: `tag_${tag}`,
+                                to: `session_${sessIdx}`,
+                                color: '#555',
+                                width: 1,
+                                smooth: { type: 'continuous' }
+                            });
+                        });
+                    }
+                }
+            }
+
+            return { nodes, edges };
+        }
+
+        function updateGraphSafe() {
+            if (!networkInstance) return;
+            const newData = buildGraphData();
+            graphAnimFullNodes = newData.nodes.slice();
+            graphAnimFullEdges = newData.edges.slice();
+
+            const data = getNetworkData();
+            if (!data) {
+                try {
+                    networkInstance.setData(newData);
+                    if (state.settings.graphAnim) {
+                        stopGraphAnimation();
+                        startGraphAnimation();
+                    }
+                } catch (e) { /* ignore */ }
+                return;
+            }
+
+            const nodes = data.nodes;
+            const edges = data.edges;
+
+            const existingNodeIds = new Set(nodes.getIds());
+            const newIds = new Set(newData.nodes.map(n => n.id));
+
+            const toRemove = [...existingNodeIds].filter(id => !newIds.has(id));
+            if (toRemove.length) nodes.remove(toRemove);
+
+            newData.nodes.forEach(n => {
+                const existing = nodes.get(n.id);
+                if (!existing) {
+                    if (!nodeOriginalSizes.has(n.id)) {
+                        nodeOriginalSizes.set(n.id, n.size || 16);
+                        nodeOriginalFontSizes.set(n.id, n.font?.size || 14);
+                    }
+                    nodes.add(n);
+                } else {
+                    if (!nodeOriginalSizes.has(n.id)) {
+                        nodeOriginalSizes.set(n.id, existing.size || n.size || 16);
+                        nodeOriginalFontSizes.set(n.id, existing.font?.size || n.font?.size || 14);
+                    }
+                    const changed = Object.keys(n).some(key => {
+                        if (key === 'id' || key === 'x' || key === 'y') return false;
+                        if (key === 'borderWidth' && n.id === `note_${notesCurrentId}`) return false;
+                        return JSON.stringify(existing[key]) !== JSON.stringify(n[key]);
+                    });
+                    if (changed) {
+                        n.x = existing.x;
+                        n.y = existing.y;
+                        if (n.id.startsWith('note_') && nodeOriginalSizes.has(n.id)) {
+                            n.size = nodeOriginalSizes.get(n.id);
+                            n.font.size = nodeOriginalFontSizes.get(n.id);
+                        }
+                        nodes.update(n);
+                    }
+                }
+            });
+
+            const existingEdgeIds = new Set(edges.getIds());
+            const newEdgeIds = new Set(newData.edges.map(e => e.id));
+            const toRemoveEdges = [...existingEdgeIds].filter(id => !newEdgeIds.has(id));
+            if (toRemoveEdges.length) edges.remove(toRemoveEdges);
+
+            newData.edges.forEach(e => {
+                const existing = edges.get(e.id);
+                if (!existing) {
+                    edges.add(e);
+                } else {
+                    const changed = Object.keys(e).some(key => {
+                        if (key === 'id') return false;
+                        return JSON.stringify(existing[key]) !== JSON.stringify(e[key]);
+                    });
+                    if (changed) edges.update(e);
+                }
+            });
+
+            setTimeout(() => {
+                if (networkInstance) networkInstance.setOptions({ physics: { enabled: true } });
+            }, 100);
+
+            try {
+                const pos = networkInstance.getViewPosition();
+                const scale = networkInstance.getScale();
+                networkInstance.moveTo({ position: pos, scale: scale });
+            } catch (e) { /* ignore */ }
+
+            setTimeout(() => { if (networkInstance) highlightCurrentNote(); }, 100);
+        }
+
+        function initGraph() {
+            const container = document.getElementById('graph-container');
+            if (!container) return;
+
+            const data = buildGraphData();
+            graphAnimFullNodes = data.nodes.slice();
+            graphAnimFullEdges = data.edges.slice();
+
+            data.nodes.forEach(n => {
+                if (!nodeOriginalSizes.has(n.id)) {
+                    nodeOriginalSizes.set(n.id, n.size || 16);
+                    nodeOriginalFontSizes.set(n.id, n.font?.size || 14);
+                }
+            });
+
+            const options = {
+                nodes: {
+                    borderWidth: 2,
+                    shadow: { enabled: true, color: 'rgba(255,255,255,0.06)', size: 5 },
+                    font: { face: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif', size: 14,
+                        color: '#ddd' },
+                },
+                edges: {
+                    width: 1.2,
+                    color: { color: '#444', highlight: '#aaa' },
+                    smooth: { type: 'continuous', forceDirection: 'none' },
+                    arrows: { to: { enabled: false } },
+                },
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    forceAtlas2Based: {
+                        gravitationalConstant: -35,
+                        centralGravity: 0.006,
+                        springLength: 150,
+                        springConstant: 0.05,
+                        avoidOverlap: 0.7,
+                    },
+                    stabilization: { iterations: 60, updateInterval: 20 },
+                    maxVelocity: 15,
+                    minVelocity: 0.15,
+                    timestep: 0.3,
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200,
+                    navigationButtons: false,
+                    dragNodes: true,
+                    dragView: true,
+                    zoomView: true,
+                },
+            };
+
+            try {
+                networkInstance = new vis.Network(container, data, options);
+            } catch (e) {
+                console.error('Failed to create network:', e);
+                return;
+            }
+
+            networkInstance.on('hoverNode', function(params) {
+                if (!params.node) return;
+                try {
+                    const data2 = getNetworkData();
+                    if (!data2) return;
+                    const nodes2 = data2.nodes;
+                    const node = nodes2.get(params.node);
+                    if (node) {
+                        if (!nodeOriginalSizes.has(node.id)) {
+                            nodeOriginalSizes.set(node.id, node.size || 16);
+                            nodeOriginalFontSizes.set(node.id, node.font?.size || 14);
+                        }
+                        const origSize = nodeOriginalSizes.get(node.id);
+                        const origFontSize = nodeOriginalFontSizes.get(node.id);
+                        node.size = origSize * 1.8;
+                        node.font.size = origFontSize * 1.6;
+                        nodes2.update(node);
+                    }
+                } catch (e) { /* ignore */ }
+            });
+
+            networkInstance.on('blurNode', function(params) {
+                if (!params.node) return;
+                try {
+                    const data2 = getNetworkData();
+                    if (!data2) return;
+                    const nodes2 = data2.nodes;
+                    const node = nodes2.get(params.node);
+                    if (node && nodeOriginalSizes.has(node.id)) {
+                        node.size = nodeOriginalSizes.get(node.id);
+                        node.font.size = nodeOriginalFontSizes.get(node.id);
+                        nodes2.update(node);
+                    }
+                } catch (e) { /* ignore */ }
+            });
+
+            networkInstance.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    if (nodeId.startsWith('note_')) {
+                        const noteId = nodeId.replace('note_', '');
+                        const note = state.notes.notes.find(n => n.id === noteId);
+                        if (note) {
+                            Object.keys(drawers).forEach(k => drawers[k].classList.remove('open'));
+                            buttons.forEach(b => b.classList.remove('active'));
+                            const notesBtn = document.querySelector('.ctrl-btn[data-module="notes"]');
+                            if (notesBtn) notesBtn.click();
+                            setTimeout(() => {
+                                notesCurrentId = note.id;
+                                state.notes.currentId = note.id;
+                                loadNoteIntoEditor(note);
+                                renderNotesList(document.getElementById('notes-search').value);
+                                saveState();
+                                if (networkInstance) setTimeout(() => { if (networkInstance)
+                                        highlightCurrentNote(); }, 200);
+                            }, 150);
+                        }
+                    } else if (nodeId.startsWith('session_')) {
+                        const idx = parseInt(nodeId.replace('session_', ''));
+                        const sessions = (state.pomodoro.activityLog || []).filter(s => s.tags && s.tags.length > 0);
+                        const session = sessions[idx];
+                        if (session) {
+                            Object.keys(drawers).forEach(k => drawers[k].classList.remove('open'));
+                            buttons.forEach(b => b.classList.remove('active'));
+                            const timerBtn = document.querySelector('.ctrl-btn[data-module="timer"]');
+                            if (timerBtn) timerBtn.click();
+                            setTimeout(() => {
+                                renderPomodoro();
+                                const logItems = document.querySelectorAll('#pom-activity-log .log-item');
+                                const fullIdx = state.pomodoro.activityLog.indexOf(session);
+                                if (logItems[fullIdx]) {
+                                    logItems[fullIdx].style.backgroundColor = '#333';
+                                    setTimeout(() => { logItems[fullIdx].style.backgroundColor = ''; },
+                                    2000);
+                                }
+                            }, 150);
+                        }
+                    } else if (nodeId.startsWith('tag_')) {
+                        const tagName = nodeId.replace('tag_', '');
+                        const data2 = getNetworkData();
+                        if (!data2) return;
+                        const nodes2 = data2.nodes;
+                        try {
+                            const allNodes = nodes2.get();
+                            const updatedNodes = allNodes.map(n => {
+                                if (n.id === nodeId) {
+                                    n.color = '#ffcc00';
+                                    n.borderWidth = 4;
+                                } else if (n._tags && n._tags.includes(tagName)) {
+                                    n.color = n.type === 'note' ? getEffectiveColor(n._noteId) ||
+                                        '#aaa' : '#aaa';
+                                    n.borderWidth = 3;
+                                } else {
+                                    n.color = n.type === 'tag' ? '#fff' : (n.type === 'note' ?
+                                        getEffectiveColor(n._noteId) || '#888' : '#666');
+                                    n.borderWidth = 2;
+                                }
+                                return n;
+                            });
+                            nodes2.update(updatedNodes);
+                            setTimeout(() => {
+                                try {
+                                    const resetNodes = allNodes.map(n => {
+                                        n.color = n.type === 'tag' ? '#fff' : (n.type === 'note' ?
+                                            getEffectiveColor(n._noteId) || '#888' : '#666');
+                                        n.borderWidth = n.id === `note_${notesCurrentId}` ? 6 : 2;
+                                        return n;
+                                    });
+                                    nodes2.update(resetNodes);
+                                } catch (e) { /* ignore */ }
+                            }, 2000);
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+            });
+
+            networkInstance.on('stabilized', function() {
+                try {
+                    networkInstance.setOptions({ physics: { enabled: true } });
+                    setTimeout(() => {
+                        if (networkInstance) {
+                            networkInstance.setOptions({ physics: { forceAtlas2Based: { gravitationalConstant: -
+                                        33 } } });
+                        }
+                    }, 800);
+                    if (networkInstance) highlightCurrentNote();
+                } catch (e) { /* ignore */ }
+            });
+
+            if (!state.settings.enabled.graph) {
+                container.style.display = 'none';
+            }
+
+            window.addEventListener('resize', () => {
+                if (networkInstance) try { networkInstance.fit(); } catch (e) { /* ignore */ }
+            });
+
+            setInterval(() => {
+                if (networkInstance && document.getElementById('graph-container').style.display !== 'none') {
+                    try {
+                        const opts = networkInstance.getOptions();
+                        if (opts.physics) {
+                            const current = opts.physics.forceAtlas2Based?.gravitationalConstant || -33;
+                            if (Math.abs(current) < 45) {
+                                networkInstance.setOptions({
+                                    physics: {
+                                        forceAtlas2Based: {
+                                            gravitationalConstant: current - (Math.random() * 2 - 1) * 1.5
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+            }, 10000);
+
+            if (state.settings.graphAnim && state.settings.enabled.graph) {
+                startGraphAnimation();
+            }
+        }
+
+        function startGraphAnimation() {
+            if (!state.settings.graphAnim) return;
+            if (!networkInstance) return;
+            if (graphAnimRunning) return;
+
+            const data = buildGraphData();
+            graphAnimFullNodes = data.nodes.slice();
+            graphAnimFullEdges = data.edges.slice();
+            if (graphAnimFullNodes.length === 0) return;
+
+            graphAnimFullNodes.forEach(n => {
+                if (!nodeOriginalSizes.has(n.id)) {
+                    nodeOriginalSizes.set(n.id, n.size || 16);
+                    nodeOriginalFontSizes.set(n.id, n.font?.size || 14);
+                }
+            });
+
+            graphAnimStep = 0;
+            graphAnimDirection = 1;
+            graphAnimRunning = true;
+
+            const dataObj = getNetworkData();
+            if (dataObj) {
+                try {
+                    dataObj.nodes.clear();
+                    dataObj.edges.clear();
+                } catch (e) { /* ignore */ }
+            } else {
+                try { networkInstance.setData({ nodes: [], edges: [] }); } catch (e) { /* ignore */ }
+            }
+            networkInstance.setOptions({ physics: false });
+
+            if (graphAnimTimer) clearInterval(graphAnimTimer);
+            graphAnimTimer = setInterval(() => {
+                if (!graphAnimRunning || !networkInstance) {
+                    clearInterval(graphAnimTimer);
+                    return;
+                }
+
+                const total = graphAnimFullNodes.length;
+                graphAnimStep += graphAnimDirection;
+                if (graphAnimStep > total) {
+                    graphAnimStep = total;
+                    graphAnimDirection = -1;
+                } else if (graphAnimStep < 0) {
+                    graphAnimStep = 0;
+                    graphAnimDirection = 1;
+                }
+
+                const currentIds = new Set(graphAnimFullNodes.slice(0, graphAnimStep).map(n => n.id));
+                const currentNodes = graphAnimFullNodes.filter(n => currentIds.has(n.id));
+                const currentEdges = graphAnimFullEdges.filter(e => currentIds.has(e.from) && currentIds.has(e.to));
+
+                const d = getNetworkData();
+                if (!d) {
+                    try {
+                        networkInstance.setData({ nodes: currentNodes, edges: currentEdges });
+                    } catch (e) { /* ignore */ }
+                    return;
+                }
+
+                const nodes = d.nodes;
+                const edges = d.edges;
+
+                const existingIds = new Set(nodes.getIds());
+                const toAdd = currentNodes.filter(n => !existingIds.has(n.id));
+                if (toAdd.length) {
+                    toAdd.forEach(n => {
+                        if (!nodeOriginalSizes.has(n.id)) {
+                            nodeOriginalSizes.set(n.id, n.size || 16);
+                            nodeOriginalFontSizes.set(n.id, n.font?.size || 14);
+                        }
+                    });
+                    nodes.add(toAdd);
+                }
+
+                const existingEdgeIds = new Set(edges.getIds());
+                const toAddEdges = currentEdges.filter(e => !existingEdgeIds.has(e.id));
+                if (toAddEdges.length) edges.add(toAddEdges);
+
+                const toRemove = nodes.getIds().filter(id => !currentIds.has(id));
+                if (toRemove.length) nodes.remove(toRemove);
+
+                const edgeIds = edges.getIds();
+                const currentEdgeIds = new Set(currentEdges.map(e => e.id));
+                const toRemoveEdges = edgeIds.filter(id => !currentEdgeIds.has(id));
+                if (toRemoveEdges.length) edges.remove(toRemoveEdges);
+
+                const allNodes = nodes.get();
+                const updated = allNodes.map(n => {
+                    if (n.id.startsWith('note_') && nodeOriginalSizes.has(n.id)) {
+                        if (n.id === `note_${notesCurrentId}`) {
+                            n.size = Math.max(nodeOriginalSizes.get(n.id) * 1.8, 28);
+                            n.font.size = 18;
+                            n.borderWidth = 6;
+                            n.shadow = { enabled: true, color: 'rgba(255,255,200,0.7)', size: 25 };
+                        } else {
+                            n.size = nodeOriginalSizes.get(n.id);
+                            n.font.size = nodeOriginalFontSizes.get(n.id);
+                            n.borderWidth = 2;
+                            n.shadow = { enabled: true, color: 'rgba(255,255,255,0.08)', size: 4 };
+                        }
+                    }
+                    return n;
+                });
+                nodes.update(updated);
+
+            }, 180);
+        }
+
+        function stopGraphAnimation() {
+            graphAnimRunning = false;
+            if (graphAnimTimer) {
+                clearInterval(graphAnimTimer);
+                graphAnimTimer = null;
+            }
+            if (networkInstance) {
+                try {
+                    const data = buildGraphData();
+                    data.nodes.forEach(n => {
+                        if (!nodeOriginalSizes.has(n.id)) {
+                            nodeOriginalSizes.set(n.id, n.size || 16);
+                            nodeOriginalFontSizes.set(n.id, n.font?.size || 14);
+                        }
+                    });
+                    networkInstance.setData(data);
+                    networkInstance.setOptions({ physics: true });
+                    setTimeout(() => { if (networkInstance) highlightCurrentNote(); }, 200);
+                } catch (e) { /* ignore */ }
+            }
+        }
+
+        // ================================================================
+        // MODALS
+        // ================================================================
+        document.getElementById('modal-close-btn').addEventListener('click', () => {
+            document.getElementById('modal-overlay').classList.remove('open');
+        });
+        document.getElementById('modal-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) document.getElementById('modal-overlay').classList.remove('open');
+        });
+
+        // ================================================================
+        // INIT
+        // ================================================================
+        loadState();
+        applySettings();
+        initPomodoro();
+        initNotes();
+        initMusic();
+        initResize();
+        applyDrawerWidth();
+
+        setTimeout(() => {
+            initGraph();
+            if (state.settings.enabled.graph) {
+                document.getElementById('graph-container').style.display = 'block';
+            }
+        }, 300);
+
+        if (state.settings.enabled.music && document.getElementById('drawer-music').classList.contains('open')) {
+            setTimeout(startVisualizer, 300);
+        }
+
+        window.addEventListener('beforeunload', () => {
+            saveCurrentNote();
+            saveState();
+            stopVisualizer();
+            stopGraphAnimation();
+        });
+
+        console.log('⏣ IMP · Clean system font + checkbox + session edit');
+        console.log('  ✅ Normal readable font throughout');
+        console.log('  ✅ Checkbox button in toolbar (☑)');
+        console.log('  ✅ Edit session notes via ✎ button in history');
+        console.log('  ✅ Original UI sizing & colors restored');
+        console.log('  ✅ Notes images: drag/drop + paste, size-limited, click = lightbox, right-click = resize');
+    </script>
+</body>
+</html>
